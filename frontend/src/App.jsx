@@ -30,6 +30,7 @@ function App() {
   const [selectedClubs, setSelectedClubs] = useState([])
   const [loadingLeagues, setLoadingLeagues] = useState(false)
   const [loadingClubs, setLoadingClubs] = useState(false)
+  const [showAnimation, setShowAnimation] = useState(false)
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -139,6 +140,13 @@ function App() {
     setLoading(true)
     setError(null)
     setResults([])
+    setShowAnimation(true) // הפעל אנימציה
+    
+    // עצור את האנימציה אחרי 3 שניות
+    setTimeout(() => {
+      setShowAnimation(false)
+    }, 3000)
+    
     try {
       // If specific clubs are selected, use multiple clubs scraper
       if (selectedClubs.length > 0) {
@@ -191,6 +199,7 @@ function App() {
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to start scraper')
       setLoading(false)
+      setShowAnimation(false) // עצור אנימציה במקרה של שגיאה
     }
   }
 
@@ -535,6 +544,15 @@ function App() {
           </div>
         )}
       </div>
+
+      {showAnimation && (
+        <div className="logo-animation-overlay">
+          <div className="logo-animation-container">
+            <img src="/logo.png" alt="Logo" className="animated-logo" />
+            <div className="animation-text">Starting Scraper...</div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
