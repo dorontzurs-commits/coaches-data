@@ -259,9 +259,6 @@ code {
 .react-select__clear-indicator:hover {
   color: #e2e8f0;
 }
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  border: 1px solid #e5e5e5;
-}
 
 .button-group {
   display: flex;
@@ -269,6 +266,11 @@ code {
   flex-wrap: wrap;
   margin-bottom: 20px;
   align-items: center;
+}
+
+/* Ensure spacing between buttons works even if gap doesn't */
+.button-group .btn:not(:last-child) {
+  margin-right: 1.5rem;
 }
 
 .btn {
