@@ -308,8 +308,8 @@ function App() {
       <div className="header">
         <div className="logo-container">
           <img src="/logo.png" alt="Logo" className="logo" />
+          <p><strong>NNNUUUU...</strong> Extract coach career history from top football clubs</p>
         </div>
-        <p>Extract coach career history from top football clubs</p>
       </div>
 
       <div className="controls">
@@ -459,7 +459,7 @@ function App() {
         <div className="results-header">
           <h2>Results</h2>
           {results.length > 0 && (
-            <span style={{ color: '#6c757d', fontSize: '1rem' }}>
+            <span style={{ color: '#94a3b8', fontSize: '1rem' }}>
               {results.length} career entr{results.length !== 1 ? 'ies' : 'y'} found
             </span>
           )}
