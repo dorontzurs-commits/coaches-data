@@ -34,6 +34,9 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+*.token
+*_token.txt
+github_token.txt
 
 
 
