@@ -442,37 +442,61 @@ class TransfermarktScraper:
                             position_text = name_cell.get_text().lower()
                             row_text_lower = row_text.lower()
                             
-                            # Check if it's Manager (not Caretaker Manager, not Assistant Manager, not Coach, etc.)
-                            # The position should be exactly "Manager" - check both the cell and row text
-                            if 'manager' in position_text or 'manager' in row_text_lower:
-                                # Exclude all other roles - must be ONLY "Manager"
+                            # First, check if "manager" appears as a standalone word
+                            manager_pattern = r'\bmanager\b'
+                            has_manager_word = re.search(manager_pattern, position_text) or re.search(manager_pattern, row_text_lower)
+                            
+                            if has_manager_word:
+                                # Exclude all other roles that contain "manager" - must be ONLY "Manager"
+                                excluded_roles = [
+                                    'loan player manager', 'player manager', 'team manager',
+                                    'caretaker manager', 'assistant manager', 'general manager',
+                                    'sporting manager', 'technical manager', 'youth manager',
+                                    'academy manager', 'development manager', 'operations manager',
+                                    'business manager', 'commercial manager', 'marketing manager'
+                                ]
+                                
+                                # Exclude other terms that indicate non-manager roles
                                 excluded_terms = [
                                     'caretaker', 'assistant', 'goalkeeping', 'fitness', 
                                     'co-trainer', 'coach', 'trainer', 'performance', 
                                     'physiotherapist', 'medical', 'nutritionist', 'dietitian',
-                                    'scientist', 'analyst', 'coordinator', 'academy', 'youth'
+                                    'scientist', 'analyst', 'coordinator', 'academy', 'youth',
+                                    'loan', 'player', 'team', 'general', 'sporting', 'technical',
+                                    'development', 'operations', 'business', 'commercial', 'marketing'
                                 ]
                                 
-                                # Check if any excluded term appears in the position/row text
-                                has_excluded_term = any(term in position_text or term in row_text_lower 
-                                                       for term in excluded_terms)
+                                # Check if any excluded role appears in the text
+                                has_excluded_role = any(excluded_role in row_text_lower for excluded_role in excluded_roles)
                                 
-                                # Only accept if it's "Manager" and no excluded terms found
-                                if not has_excluded_term:
-                                    # Double check: make sure "manager" appears as standalone word
-                                    # and that excluded terms don't appear as standalone words
-                                    manager_pattern = r'\bmanager\b'
-                                    has_manager_word = re.search(manager_pattern, position_text) or re.search(manager_pattern, row_text_lower)
+                                # Check if any excluded term appears as a standalone word
+                                excluded_as_words = False
+                                for term in excluded_terms:
+                                    term_pattern = r'\b' + re.escape(term) + r'\b'
+                                    if re.search(term_pattern, position_text) or re.search(term_pattern, row_text_lower):
+                                        excluded_as_words = True
+                                        break
+                                
+                                # Only accept if it's exactly "Manager" and no excluded roles/terms found
+                                if not has_excluded_role and not excluded_as_words:
+                                    # Additional check: make sure "manager" is not part of a compound role
+                                    # Look for patterns like "X Manager" where X indicates a different role
+                                    compound_pattern = r'\b(\w+)\s+manager\b'
+                                    matches = re.findall(compound_pattern, row_text_lower)
                                     
-                                    # Check if any excluded term appears as a standalone word (not just as part of another word)
-                                    excluded_as_words = False
-                                    for term in excluded_terms:
-                                        term_pattern = r'\b' + re.escape(term) + r'\b'
-                                        if re.search(term_pattern, position_text) or re.search(term_pattern, row_text_lower):
-                                            excluded_as_words = True
-                                            break
+                                    # Valid prefixes that are acceptable (Head Manager, First Manager, etc.)
+                                    valid_prefixes = ['head', 'first', 'first-team']
                                     
-                                    if has_manager_word and not excluded_as_words:
+                                    # If we found compound roles, check if they're valid
+                                    is_valid_manager = True
+                                    if matches:
+                                        for prefix in matches:
+                                            if prefix not in valid_prefixes:
+                                                # Found an invalid compound role (e.g., "loan player manager")
+                                                is_valid_manager = False
+                                                break
+                                    
+                                    if is_valid_manager:
                                         is_manager = True
                                         role = 'Manager'
                             
@@ -520,11 +544,21 @@ class TransfermarktScraper:
                 trainer_links = staff_soup.find_all('a', href=re.compile(r'/trainer/\d+'))
                 if trainer_links:
                     # Check context around each link to find ONLY Manager
+                    excluded_roles = [
+                        'loan player manager', 'player manager', 'team manager',
+                        'caretaker manager', 'assistant manager', 'general manager',
+                        'sporting manager', 'technical manager', 'youth manager',
+                        'academy manager', 'development manager', 'operations manager',
+                        'business manager', 'commercial manager', 'marketing manager'
+                    ]
+                    
                     excluded_terms = [
                         'caretaker', 'assistant', 'goalkeeping', 'fitness', 
                         'co-trainer', 'coach', 'trainer', 'performance', 
                         'physiotherapist', 'medical', 'nutritionist', 'dietitian',
-                        'scientist', 'analyst', 'coordinator', 'academy', 'youth'
+                        'scientist', 'analyst', 'coordinator', 'academy', 'youth',
+                        'loan', 'player', 'team', 'general', 'sporting', 'technical',
+                        'development', 'operations', 'business', 'commercial', 'marketing'
                     ]
                     
                     for link in trainer_links:
@@ -532,26 +566,36 @@ class TransfermarktScraper:
                         if parent:
                             parent_text = parent.get_text().lower()
                             
-                            # Only accept if it's "Manager" and not any other role
-                            has_excluded_term = any(term in parent_text for term in excluded_terms)
-                            
                             # Check if "manager" appears as a standalone word
                             manager_pattern = r'\bmanager\b'
                             has_manager = re.search(manager_pattern, parent_text)
                             
-                            if has_manager and not has_excluded_term:
-                                name = link.text.strip()
-                                if name:
-                                    profile_url = urljoin(self.base_url, link['href'])
-                                    manager_id = self._extract_manager_id(profile_url)
-                                    if manager_id:
-                                        print(f"  -> Found Manager (fallback): {name} (ID: {manager_id})")
-                                        managers.append({
-                                            'name': name,
-                                            'profile_url': profile_url,
-                                            'id': manager_id,
-                                            'role': 'Manager'
-                                        })
+                            if has_manager:
+                                # Check if any excluded role appears
+                                has_excluded_role = any(excluded_role in parent_text for excluded_role in excluded_roles)
+                                
+                                # Check if any excluded term appears as a standalone word
+                                has_excluded_term = False
+                                for term in excluded_terms:
+                                    term_pattern = r'\b' + re.escape(term) + r'\b'
+                                    if re.search(term_pattern, parent_text):
+                                        has_excluded_term = True
+                                        break
+                                
+                                # Only accept if it's exactly "Manager" and no excluded roles/terms found
+                                if not has_excluded_role and not has_excluded_term:
+                                    name = link.text.strip()
+                                    if name:
+                                        profile_url = urljoin(self.base_url, link['href'])
+                                        manager_id = self._extract_manager_id(profile_url)
+                                        if manager_id:
+                                            print(f"  -> Found Manager (fallback): {name} (ID: {manager_id})")
+                                            managers.append({
+                                                'name': name,
+                                                'profile_url': profile_url,
+                                                'id': manager_id,
+                                                'role': 'Manager'
+                                            })
         
         return managers
     
