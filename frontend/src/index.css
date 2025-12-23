@@ -48,6 +48,26 @@ code {
   height: auto;
   width: auto;
   object-fit: contain;
+  transition: transform 0.3s ease;
+}
+
+.logo-running {
+  animation: logoRunningAnimation 2s ease-in-out infinite;
+}
+
+@keyframes logoRunningAnimation {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  25% {
+    transform: scale(1.1) rotate(-5deg);
+  }
+  50% {
+    transform: scale(1.15) rotate(0deg);
+  }
+  75% {
+    transform: scale(1.1) rotate(5deg);
+  }
 }
 
 .header p {
@@ -61,6 +81,24 @@ code {
   color: #e2e8f0;
   font-weight: 600;
   font-size: 1.15rem;
+}
+
+.running-message {
+  color: #ef4444;
+  animation: pulseText 1.5s ease-in-out infinite;
+}
+
+.running-message strong {
+  color: #ef4444;
+}
+
+@keyframes pulseText {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .controls {

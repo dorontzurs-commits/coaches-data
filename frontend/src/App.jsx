@@ -214,8 +214,32 @@ function App() {
   const resetScraper = async () => {
     try {
       await axios.post(`${API_BASE}/reset`)
+      
+      // Reset all state to default values
       setResults([])
       setError(null)
+      setLoading(false)
+      setShowAnimation(false)
+      
+      // Reset all selections
+      setSelectedContinent('')
+      setSelectedLeagues([])
+      setSelectedClubs([])
+      
+      // Clear loaded data
+      setLeagues([])
+      setClubs([])
+      
+      // Reset status to default
+      setStatus({
+        running: false,
+        progress: {
+          current: 0,
+          total: 0,
+          current_club: '',
+          status: 'idle'
+        }
+      })
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to reset scraper')
     }
@@ -316,8 +340,18 @@ function App() {
     <div className="container">
       <div className="header">
         <div className="logo-container">
-          <img src="/logo.png" alt="Logo" className="logo" />
-          <p><strong>NNNUUUU...</strong> Extract coach career history from top football clubs</p>
+          <img src="/logo.png" alt="Logo" className={`logo ${status.running ? 'logo-running' : ''}`} />
+          <p>
+            {status.running ? (
+              <span className="running-message">
+                <strong>NNNUUU...</strong> Another operation is currently running. Please wait for it to complete.
+              </span>
+            ) : (
+              <>
+                <strong>NNNUUUU...</strong> Extract coach career history from top football clubs
+              </>
+            )}
+          </p>
         </div>
       </div>
 

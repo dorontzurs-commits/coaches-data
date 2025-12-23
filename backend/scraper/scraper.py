@@ -604,11 +604,51 @@ class TransfermarktScraper:
                     entry['club'] = club_link.get_text().strip()
                     entry['club_url'] = urljoin(self.base_url, club_link['href'])
                 
-                # Extract role (Manager/Coach etc.)
+                # Extract role (ONLY Manager - not Coach, not Head Coach, etc.)
+                # Check the entire row text for role information
+                row_text = row.get_text()
                 role_text = club_cell.get_text()
-                role_match = re.search(r'(Manager|Coach|Head Coach)', role_text, re.I)
-                if role_match:
-                    entry['role'] = role_match.group(1)
+                
+                # Combine both texts to search for role (case insensitive)
+                combined_text = (role_text + ' ' + row_text).lower()
+                
+                # Only match "Manager" - can be standalone or attached to club name (e.g., "Real MadridManager")
+                # Pattern: "manager" that is either:
+                # 1. At word boundary: \bmanager\b (with space before)
+                # 2. Attached to a word (like "MadridManager"): [a-z]manager\b (letter before + manager + word boundary after)
+                # This handles both "Manager" and "MadridManager" cases
+                manager_pattern = r'(\b|(?<=[a-z]))manager\b'
+                has_manager = re.search(manager_pattern, combined_text, re.I)
+                
+                if has_manager:
+                    # Check that it's not a compound role like "Assistant Manager" or "Caretaker Manager"
+                    excluded_compound_roles = [
+                        'loan player manager', 'player manager', 'team manager',
+                        'caretaker manager', 'assistant manager', 'general manager',
+                        'sporting manager', 'technical manager', 'youth manager',
+                        'academy manager', 'development manager', 'operations manager',
+                        'business manager', 'commercial manager', 'marketing manager'
+                    ]
+                    
+                    # Also check for compound roles without spaces (e.g., "assistantmanager")
+                    excluded_compound_no_space = [
+                        'loanplayermanager', 'playermanager', 'teammanager',
+                        'caretakermanager', 'assistantmanager', 'generalmanager',
+                        'sportingmanager', 'technicalmanager', 'youthmanager',
+                        'academymanager', 'developmentmanager', 'operationsmanager',
+                        'businessmanager', 'commercialmanager', 'marketingmanager'
+                    ]
+                    
+                    # Remove spaces for no-space check
+                    combined_no_space = combined_text.replace(' ', '')
+                    
+                    has_excluded_role = any(excluded_role in combined_text for excluded_role in excluded_compound_roles)
+                    has_excluded_no_space = any(excluded_role in combined_no_space for excluded_role in excluded_compound_no_space)
+                    
+                    # If no excluded role found, it's a valid Manager
+                    if not has_excluded_role and not has_excluded_no_space:
+                        entry['role'] = 'Manager'
+                        print(f"    -> Found Manager role for {entry.get('club', 'Unknown Club')}")
                 
                 # Extract dates - "Appointed" column (usually column 2)
                 if len(cells) > 2:
@@ -677,11 +717,17 @@ class TransfermarktScraper:
                 if len(cells) > 12:
                     entry['points_per_match'] = self._extract_number(cells[12].get_text(), is_float=True)
                 
-                # Only add if we have at least club info
+                # Only add if we have club info AND the role is exactly "Manager"
                 if 'club' in entry:
-                    career_entries.append(entry)
+                    if entry.get('role') == 'Manager':
+                        career_entries.append(entry)
+                    else:
+                        # Debug: log entries that were filtered out
+                        print(f"    -> Filtered out entry for {entry.get('club', 'Unknown')} - role: {entry.get('role', 'None')}")
+                else:
+                    print(f"    -> Skipped entry - no club found")
         
-        print(f"  -> Extracted {len(career_entries)} career entries")
+        print(f"  -> Extracted {len(career_entries)} career entries (only Manager roles)")
         return career_entries
     
     def _extract_number(self, text, is_float=False):
@@ -776,8 +822,12 @@ class TransfermarktScraper:
                 
                 print(f"  -> Found {len(career_history)} career entries")
                 
-                # Add to results
+                # Add to results - ONLY entries with role "Manager"
                 for entry in career_history:
+                    # Skip entries that don't have role "Manager" exactly
+                    if entry.get('role') != 'Manager':
+                        continue
+                    
                     results.append({
                         'league': club.get('league', ''),
                         'league_country': club.get('league_country', ''),
