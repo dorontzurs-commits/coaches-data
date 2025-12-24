@@ -440,27 +440,80 @@ class TransfermarktScraper:
                             # Get text from the row to check for role
                             row_text_lower = row_text.lower()
                             
+                            # DEBUG: Log the full row text to understand what we're checking
+                            print(f"    [DEBUG] Checking row text: {row_text_lower[:200]}...")
+                            
                             # Simple check: look for "manager" as a standalone word
                             manager_pattern = r'\bmanager\b'
                             has_manager_word = re.search(manager_pattern, row_text_lower)
                             
                             if has_manager_word:
+                                print(f"    [DEBUG] Found 'manager' word in text")
+                                
                                 # Exclude specific compound roles that contain "manager"
                                 excluded_compound_roles = [
                                     'loan player manager', 'player manager', 'team manager',
                                     'caretaker manager', 'assistant manager', 'general manager',
                                     'sporting manager', 'technical manager', 'youth manager',
                                     'academy manager', 'development manager', 'operations manager',
-                                    'business manager', 'commercial manager', 'marketing manager'
+                                    'business manager', 'commercial manager', 'marketing manager',
+                                    'kit manager', 'performance manager', 'team official',
+                                    'goalkeeping coach', 'fitness manager', 'scout manager',
+                                    'data manager', 'analyst manager', 'video manager',
+                                    'equipment manager', 'stadium manager', 'facilities manager'
                                 ]
                                 
                                 # Check if any excluded compound role appears in the text
                                 has_excluded_role = any(excluded_role in row_text_lower for excluded_role in excluded_compound_roles)
                                 
-                                # If no excluded role found, it's a valid Manager
-                                if not has_excluded_role:
-                                    is_manager = True
-                                    role = 'Manager'
+                                if has_excluded_role:
+                                    # Find which excluded role matched
+                                    matched_role = next((r for r in excluded_compound_roles if r in row_text_lower), None)
+                                    print(f"    [DEBUG] EXCLUDED - Found compound role: '{matched_role}'")
+                                else:
+                                    # Additional check: if the text contains "manager" but also contains other role indicators
+                                    # that suggest it's not the main Manager role
+                                    # Check if these indicators appear NEAR "manager" (within 15 characters)
+                                    other_role_indicators = ['coach', 'official', 'staff', 'analyst', 'scout', 'kit', 'performance', 'goalkeeping', 'fitness', 'equipment', 'stadium', 'facilities']
+                                    
+                                    # Find position of "manager" in text
+                                    manager_match = re.search(r'\bmanager\b', row_text_lower)
+                                    has_other_indicator_near = False
+                                    
+                                    if manager_match:
+                                        manager_start = manager_match.start()
+                                        manager_end = manager_match.end()
+                                        
+                                        # Check a window of 15 characters before and after "manager"
+                                        context_start = max(0, manager_start - 15)
+                                        context_end = min(len(row_text_lower), manager_end + 15)
+                                        context_text = row_text_lower[context_start:context_end]
+                                        
+                                        print(f"    [DEBUG] Context around 'manager': '{context_text}'")
+                                        
+                                        # Check if any other role indicator appears in this context
+                                        for indicator in other_role_indicators:
+                                            if indicator in context_text and indicator != 'manager':
+                                                has_other_indicator_near = True
+                                                print(f"    [DEBUG] EXCLUDED - Found '{indicator}' near 'manager' in context")
+                                                break
+                                    
+                                    if has_other_indicator_near:
+                                        print(f"    [DEBUG] EXCLUDED - Found other role indicator near 'manager'")
+                                    else:
+                                        # Final check: make sure "manager" appears as a standalone word, not part of another word
+                                        # Check if "manager" is preceded by a space or is at the start, and followed by a space or end
+                                        standalone_manager_pattern = r'(^|\s)manager(\s|$|[^a-z])'
+                                        is_standalone = re.search(standalone_manager_pattern, row_text_lower)
+                                        
+                                        if is_standalone:
+                                            is_manager = True
+                                            role = 'Manager'
+                                            print(f"    [DEBUG] ACCEPTED - Valid Manager role found")
+                                        else:
+                                            print(f"    [DEBUG] EXCLUDED - 'manager' is not standalone")
+                            else:
+                                print(f"    [DEBUG] No 'manager' word found in text")
                             
                             # Only return Manager (not Caretaker Manager, not Coach, not any other role)
                             if is_manager:
@@ -505,19 +558,28 @@ class TransfermarktScraper:
                 # Fallback: look for any trainer link on the staff page (ONLY Manager)
                 trainer_links = staff_soup.find_all('a', href=re.compile(r'/trainer/\d+'))
                 if trainer_links:
+                    print(f"  -> [DEBUG] Found {len(trainer_links)} trainer links in fallback search")
                     # Check context around each link to find ONLY Manager
                     excluded_compound_roles = [
                         'loan player manager', 'player manager', 'team manager',
                         'caretaker manager', 'assistant manager', 'general manager',
                         'sporting manager', 'technical manager', 'youth manager',
                         'academy manager', 'development manager', 'operations manager',
-                        'business manager', 'commercial manager', 'marketing manager'
+                        'business manager', 'commercial manager', 'marketing manager',
+                        'kit manager', 'performance manager', 'team official',
+                        'goalkeeping coach', 'fitness manager', 'scout manager',
+                        'data manager', 'analyst manager', 'video manager',
+                        'equipment manager', 'stadium manager', 'facilities manager'
                     ]
                     
                     for link in trainer_links:
                         parent = link.find_parent(['tr', 'td', 'div'])
                         if parent:
                             parent_text = parent.get_text().lower()
+                            name = link.text.strip()
+                            
+                            print(f"  -> [DEBUG] Checking trainer link: {name}")
+                            print(f"  -> [DEBUG] Parent text: {parent_text[:200]}...")
                             
                             # Check if "manager" appears as a standalone word
                             manager_pattern = r'\bmanager\b'
@@ -527,20 +589,60 @@ class TransfermarktScraper:
                                 # Check if any excluded compound role appears
                                 has_excluded_role = any(excluded_role in parent_text for excluded_role in excluded_compound_roles)
                                 
-                                # If no excluded role found, it's a valid Manager
-                                if not has_excluded_role:
-                                    name = link.text.strip()
-                                    if name:
-                                        profile_url = urljoin(self.base_url, link['href'])
-                                        manager_id = self._extract_manager_id(profile_url)
-                                        if manager_id:
-                                            print(f"  -> Found Manager (fallback): {name} (ID: {manager_id})")
-                                            managers.append({
-                                                'name': name,
-                                                'profile_url': profile_url,
-                                                'id': manager_id,
-                                                'role': 'Manager'
-                                            })
+                                if has_excluded_role:
+                                    matched_role = next((r for r in excluded_compound_roles if r in parent_text), None)
+                                    print(f"  -> [DEBUG] EXCLUDED - Found compound role: '{matched_role}' for {name}")
+                                else:
+                                    # Additional check: if the text contains "manager" but also contains other role indicators
+                                    # that suggest it's not the main Manager role
+                                    # Check if these indicators appear NEAR "manager" (within 15 characters)
+                                    other_role_indicators = ['coach', 'official', 'staff', 'analyst', 'scout', 'kit', 'performance', 'goalkeeping', 'fitness', 'equipment', 'stadium', 'facilities']
+                                    
+                                    # Find position of "manager" in text
+                                    manager_match = re.search(r'\bmanager\b', parent_text)
+                                    has_other_indicator_near = False
+                                    
+                                    if manager_match:
+                                        manager_start = manager_match.start()
+                                        manager_end = manager_match.end()
+                                        
+                                        # Check a window of 15 characters before and after "manager"
+                                        context_start = max(0, manager_start - 15)
+                                        context_end = min(len(parent_text), manager_end + 15)
+                                        context_text = parent_text[context_start:context_end]
+                                        
+                                        print(f"  -> [DEBUG] Context around 'manager' for {name}: '{context_text}'")
+                                        
+                                        # Check if any other role indicator appears in this context
+                                        for indicator in other_role_indicators:
+                                            if indicator in context_text and indicator != 'manager':
+                                                has_other_indicator_near = True
+                                                print(f"  -> [DEBUG] EXCLUDED - Found '{indicator}' near 'manager' for {name}")
+                                                break
+                                    
+                                    if has_other_indicator_near:
+                                        print(f"  -> [DEBUG] EXCLUDED - Found other role indicator near 'manager' for {name}")
+                                    else:
+                                        # Final standalone check
+                                        standalone_manager_pattern = r'(^|\s)manager(\s|$|[^a-z])'
+                                        is_standalone = re.search(standalone_manager_pattern, parent_text)
+                                        
+                                        if is_standalone:
+                                            if name:
+                                                profile_url = urljoin(self.base_url, link['href'])
+                                                manager_id = self._extract_manager_id(profile_url)
+                                                if manager_id:
+                                                    print(f"  -> [DEBUG] ACCEPTED - Found Manager (fallback): {name} (ID: {manager_id})")
+                                                    managers.append({
+                                                        'name': name,
+                                                        'profile_url': profile_url,
+                                                        'id': manager_id,
+                                                        'role': 'Manager'
+                                                    })
+                                        else:
+                                            print(f"  -> [DEBUG] EXCLUDED - 'manager' is not standalone for {name}")
+                            else:
+                                print(f"  -> [DEBUG] EXCLUDED - No 'manager' word found for {name}")
         
         return managers
     
@@ -612,6 +714,9 @@ class TransfermarktScraper:
                 # Combine both texts to search for role (case insensitive)
                 combined_text = (role_text + ' ' + row_text).lower()
                 
+                # DEBUG: Log the combined text to understand what we're checking
+                print(f"    [DEBUG] Checking role text for {entry.get('club', 'Unknown Club')}: {combined_text[:300]}...")
+                
                 # Only match "Manager" - can be standalone or attached to club name (e.g., "Real MadridManager")
                 # Pattern: "manager" that is either:
                 # 1. At word boundary: \bmanager\b (with space before)
@@ -621,13 +726,19 @@ class TransfermarktScraper:
                 has_manager = re.search(manager_pattern, combined_text, re.I)
                 
                 if has_manager:
+                    print(f"    [DEBUG] Found 'manager' word in combined text")
+                    
                     # Check that it's not a compound role like "Assistant Manager" or "Caretaker Manager"
                     excluded_compound_roles = [
                         'loan player manager', 'player manager', 'team manager',
                         'caretaker manager', 'assistant manager', 'general manager',
                         'sporting manager', 'technical manager', 'youth manager',
                         'academy manager', 'development manager', 'operations manager',
-                        'business manager', 'commercial manager', 'marketing manager'
+                        'business manager', 'commercial manager', 'marketing manager',
+                        'kit manager', 'performance manager', 'team official',
+                        'goalkeeping coach', 'fitness manager', 'scout manager',
+                        'data manager', 'analyst manager', 'video manager',
+                        'equipment manager', 'stadium manager', 'facilities manager'
                     ]
                     
                     # Also check for compound roles without spaces (e.g., "assistantmanager")
@@ -636,7 +747,11 @@ class TransfermarktScraper:
                         'caretakermanager', 'assistantmanager', 'generalmanager',
                         'sportingmanager', 'technicalmanager', 'youthmanager',
                         'academymanager', 'developmentmanager', 'operationsmanager',
-                        'businessmanager', 'commercialmanager', 'marketingmanager'
+                        'businessmanager', 'commercialmanager', 'marketingmanager',
+                        'kitmanager', 'performancemanager', 'teamofficial',
+                        'goalkeepingcoach', 'fitnessmanager', 'scoutmanager',
+                        'datamanager', 'analystmanager', 'videomanager',
+                        'equipmentmanager', 'stadiummanager', 'facilitiesmanager'
                     ]
                     
                     # Remove spaces for no-space check
@@ -645,10 +760,47 @@ class TransfermarktScraper:
                     has_excluded_role = any(excluded_role in combined_text for excluded_role in excluded_compound_roles)
                     has_excluded_no_space = any(excluded_role in combined_no_space for excluded_role in excluded_compound_no_space)
                     
-                    # If no excluded role found, it's a valid Manager
-                    if not has_excluded_role and not has_excluded_no_space:
-                        entry['role'] = 'Manager'
-                        print(f"    -> Found Manager role for {entry.get('club', 'Unknown Club')}")
+                    if has_excluded_role:
+                        matched_role = next((r for r in excluded_compound_roles if r in combined_text), None)
+                        print(f"    [DEBUG] EXCLUDED - Found compound role: '{matched_role}' for {entry.get('club', 'Unknown Club')}")
+                    elif has_excluded_no_space:
+                        matched_role = next((r for r in excluded_compound_no_space if r in combined_no_space), None)
+                        print(f"    [DEBUG] EXCLUDED - Found compound role (no space): '{matched_role}' for {entry.get('club', 'Unknown Club')}")
+                    else:
+                        # Additional check: if the text contains "manager" but also contains other role indicators
+                        # that suggest it's not the main Manager role
+                        # Check if these indicators appear NEAR "manager" (within 15 characters)
+                        other_role_indicators = ['coach', 'official', 'staff', 'analyst', 'scout', 'kit', 'performance', 'goalkeeping', 'fitness', 'equipment', 'stadium', 'facilities']
+                        
+                        # Find position of "manager" in text
+                        manager_match = re.search(r'(\b|(?<=[a-z]))manager\b', combined_text, re.I)
+                        has_other_indicator_near = False
+                        
+                        if manager_match:
+                            manager_start = manager_match.start()
+                            manager_end = manager_match.end()
+                            
+                            # Check a window of 15 characters before and after "manager"
+                            context_start = max(0, manager_start - 15)
+                            context_end = min(len(combined_text), manager_end + 15)
+                            context_text = combined_text[context_start:context_end]
+                            
+                            print(f"    [DEBUG] Context around 'manager' for {entry.get('club', 'Unknown Club')}: '{context_text}'")
+                            
+                            # Check if any other role indicator appears in this context
+                            for indicator in other_role_indicators:
+                                if indicator in context_text and indicator != 'manager':
+                                    has_other_indicator_near = True
+                                    print(f"    [DEBUG] EXCLUDED - Found '{indicator}' near 'manager' for {entry.get('club', 'Unknown Club')}")
+                                    break
+                        
+                        if has_other_indicator_near:
+                            print(f"    [DEBUG] EXCLUDED - Found other role indicator near 'manager' for {entry.get('club', 'Unknown Club')}")
+                        else:
+                            entry['role'] = 'Manager'
+                            print(f"    [DEBUG] ACCEPTED - Found Manager role for {entry.get('club', 'Unknown Club')}")
+                else:
+                    print(f"    [DEBUG] No 'manager' word found in combined text for {entry.get('club', 'Unknown Club')}")
                 
                 # Extract dates - "Appointed" column (usually column 2)
                 if len(cells) > 2:
