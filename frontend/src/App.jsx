@@ -31,6 +31,7 @@ function App() {
   const [loadingLeagues, setLoadingLeagues] = useState(false)
   const [loadingClubs, setLoadingClubs] = useState(false)
   const [showAnimation, setShowAnimation] = useState(false)
+  const [managerId, setManagerId] = useState('')
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -148,6 +149,14 @@ function App() {
     }, 3000)
     
     try {
+      // If Manager ID is provided, use manager scraper
+      if (managerId && managerId.trim() !== '') {
+        await axios.post(`${API_BASE}/start-manager`, {
+          manager_id: managerId.trim()
+        })
+        return
+      }
+      
       // If specific clubs are selected, use multiple clubs scraper
       if (selectedClubs.length > 0) {
         if (selectedClubs.length === 1) {
@@ -225,6 +234,7 @@ function App() {
       setSelectedContinent('')
       setSelectedLeagues([])
       setSelectedClubs([])
+      setManagerId('')
       
       // Clear loaded data
       setLeagues([])
@@ -270,11 +280,11 @@ function App() {
       
       // Headers (without League column)
       const headers = [
-        'League Country', 'Current Club', 'Current Club URL', 
-        'Manager', 'Manager Role', 'Manager ID',
-        'History Club', 'History Club URL', 'Role', 
-        'Appointed Season', 'Appointed Date', 'Until Season', 'Until Date',
-        'Period From', 'Period Until', 'Days in Charge',
+        'Current Club', 
+        'Manager', 'Manager ID', 'Date of Birth', 'Preferred Formation',
+        'History Club', 'Role', 
+        'Appointed Date', 'Until Date',
+        'Days in Charge',
         'Matches', 'Wins', 'Draws', 'Losses', 'Players Used',
         'Avg Goals For', 'Avg Goals Against', 'Points Per Match'
       ]
@@ -283,21 +293,15 @@ function App() {
       const data = [
         headers,
         ...leagueResults.map(row => [
-          row.league_country || '',
           row.current_club || '',
-          row.current_club_url || '',
           row.manager || '',
-          row.manager_role || 'Manager',
           row.manager_id || '',
+          row.date_of_birth || '',
+          row.preferred_formation || '',
           row.history_club || '',
-          row.history_club_url || '',
           row.role || '',
-          row.appointed_season || '',
           row.appointed_date || '',
-          row.until_season || '',
           row.until_date || '',
-          row.period_from || '',
-          row.period_until || '',
           row.days_in_charge || '',
           row.matches || '',
           row.wins || '',
@@ -358,13 +362,39 @@ function App() {
       <div className="controls">
         <div className="selection-section">
           <div className="select-group">
+            <label htmlFor="manager-id-input">Manager ID (optional):</label>
+            <input
+              id="manager-id-input"
+              type="text"
+              value={managerId}
+              onChange={(e) => {
+                // Only allow numbers
+                const value = e.target.value.replace(/[^0-9]/g, '')
+                setManagerId(value)
+              }}
+              placeholder="Enter Manager ID (numbers only)"
+              disabled={status.running}
+              style={{
+                padding: '8px 12px',
+                fontSize: '1rem',
+                border: '1px solid #475569',
+                borderRadius: '4px',
+                backgroundColor: '#1e293b',
+                color: '#e2e8f0',
+                width: '100%',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <div className="select-group">
             <label htmlFor="continent-select">Select Continent:</label>
             <Select
               id="continent-select"
               value={continents.find(c => c.value === selectedContinent) || null}
               onChange={(option) => setSelectedContinent(option ? option.value : '')}
               options={continents}
-              isDisabled={status.running}
+              isDisabled={status.running || managerId !== ''}
               placeholder="-- Select a Continent --"
               isClearable
               className="react-select-container"
@@ -389,7 +419,7 @@ function App() {
                   value: league.id || league.url,
                   label: `${league.name}${league.country ? ` (${league.country})` : ''}`
                 }))}
-                isDisabled={status.running || loadingLeagues}
+                isDisabled={status.running || loadingLeagues || managerId !== ''}
                 placeholder={loadingLeagues ? "Loading leagues..." : "-- Select League(s) --"}
                 isClearable
                 closeMenuOnSelect={false}
@@ -420,7 +450,7 @@ function App() {
                   value: club.url,
                   label: `${club.name}${club.leagueName ? ` (${club.leagueName})` : ''}`
                 }))}
-                isDisabled={status.running || loadingClubs}
+                isDisabled={status.running || loadingClubs || managerId !== ''}
                 placeholder={loadingClubs ? "Loading clubs..." : "-- Select Club(s) --"}
                 isClearable
                 closeMenuOnSelect={false}
@@ -435,10 +465,10 @@ function App() {
           <button 
             className="btn btn-primary" 
             onClick={startScraper} 
-            disabled={status.running || loading || (selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent)}
-            title={selectedClubs.length > 0 ? `Scrape ${selectedClubs.length} selected club(s)` : selectedLeagues.length > 0 ? `Scrape all clubs from ${selectedLeagues.length} selected league(s)` : selectedContinent ? `Scrape all leagues from ${continents.find(c => c.value === selectedContinent)?.label}` : 'Select a continent, league(s) or club(s) first'}
+            disabled={status.running || loading || (managerId === '' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent)}
+            title={managerId ? `Scrape manager ID: ${managerId}` : selectedClubs.length > 0 ? `Scrape ${selectedClubs.length} selected club(s)` : selectedLeagues.length > 0 ? `Scrape all clubs from ${selectedLeagues.length} selected league(s)` : selectedContinent ? `Scrape all leagues from ${continents.find(c => c.value === selectedContinent)?.label}` : 'Select a continent, league(s), club(s) or enter Manager ID'}
           >
-            ▶ {selectedClubs.length > 0 ? `Start Scraper (${selectedClubs.length} Club${selectedClubs.length > 1 ? 's' : ''})` : selectedLeagues.length > 0 ? `Start Scraper (${selectedLeagues.length} League${selectedLeagues.length > 1 ? 's' : ''})` : selectedContinent ? `Start Scraper (All Leagues - ${continents.find(c => c.value === selectedContinent)?.label})` : 'Start Scraper'}
+            ▶ {managerId ? `Start Scraper (Manager ID: ${managerId})` : selectedClubs.length > 0 ? `Start Scraper (${selectedClubs.length} Club${selectedClubs.length > 1 ? 's' : ''})` : selectedLeagues.length > 0 ? `Start Scraper (${selectedLeagues.length} League${selectedLeagues.length > 1 ? 's' : ''})` : selectedContinent ? `Start Scraper (All Leagues - ${continents.find(c => c.value === selectedContinent)?.label})` : 'Start Scraper'}
           </button>
           <button 
             className="btn btn-danger" 
@@ -529,14 +559,12 @@ function App() {
                   <th>Current Club</th>
                   <th>Manager</th>
                   <th>Manager ID</th>
+                  <th>Date of Birth</th>
+                  <th>Preferred Formation</th>
                   <th>History Club</th>
                   <th>Role</th>
-                  <th>Appointed Season</th>
                   <th>Appointed Date</th>
-                  <th>Until Season</th>
                   <th>Until Date</th>
-                  <th>Period From</th>
-                  <th>Period Until</th>
                   <th>Days in Charge</th>
                   <th>Matches</th>
                   <th>Wins</th>
@@ -554,14 +582,12 @@ function App() {
                     <td>{row.current_club}</td>
                     <td>{row.manager}</td>
                     <td>{row.manager_id || '-'}</td>
+                    <td>{row.date_of_birth || '-'}</td>
+                    <td>{row.preferred_formation || '-'}</td>
                     <td>{row.history_club}</td>
                     <td>{row.role || '-'}</td>
-                    <td>{row.appointed_season || '-'}</td>
                     <td>{row.appointed_date || '-'}</td>
-                    <td>{row.until_season || '-'}</td>
                     <td>{row.until_date || '-'}</td>
-                    <td>{row.period_from || '-'}</td>
-                    <td>{row.period_until || '-'}</td>
                     <td>{row.days_in_charge || '-'}</td>
                     <td>{row.matches || '-'}</td>
                     <td>{row.wins || '-'}</td>

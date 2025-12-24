@@ -245,6 +245,45 @@ def start_clubs_scraper():
         scraper_state['running'] = False
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/start-manager', methods=['POST'])
+def start_manager_scraper():
+    """Start scraper for a specific manager by ID"""
+    global scraper_instance, scraper_thread, scraper_state
+    
+    if scraper_state['running']:
+        return jsonify({'error': 'Scraper is already running'}), 400
+    
+    try:
+        data = request.json
+        manager_id = data.get('manager_id')
+        
+        if not manager_id:
+            return jsonify({'error': 'manager_id is required'}), 400
+        
+        # Validate that manager_id is a number
+        try:
+            manager_id = str(int(manager_id))  # Convert to string and validate it's a number
+        except (ValueError, TypeError):
+            return jsonify({'error': 'manager_id must be a valid number'}), 400
+        
+        scraper_state['running'] = True
+        scraper_state['progress']['status'] = 'starting'
+        scraper_state['results'] = []
+        
+        scraper_instance = TransfermarktScraper(callback=update_progress)
+        
+        scraper_thread = threading.Thread(target=run_manager_scraper, args=(manager_id,))
+        scraper_thread.daemon = True
+        scraper_thread.start()
+        
+        return jsonify({'message': f'Scraper started for manager ID: {manager_id}'})
+    except Exception as e:
+        import traceback
+        print(f"Error in start_manager_scraper: {e}")
+        print(traceback.format_exc())
+        scraper_state['running'] = False
+        return jsonify({'error': str(e)}), 500
+
 def update_progress(current, total, current_club, status):
     """Callback to update progress"""
     scraper_state['progress'] = {
@@ -325,6 +364,9 @@ def run_league_scraper(league_url, league_name=None):
             
             # Process each manager
             for manager in managers:
+                # Get manager profile info (date of birth, preferred formation)
+                profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+                
                 career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
                 
                 for entry in career_history:
@@ -336,6 +378,8 @@ def run_league_scraper(league_url, league_name=None):
                         'manager': manager['name'],
                         'manager_id': manager['id'],
                         'manager_role': manager.get('role', 'Manager'),
+                        'date_of_birth': profile_info.get('date_of_birth', ''),
+                        'preferred_formation': profile_info.get('preferred_formation', ''),
                         'history_club': entry.get('club', ''),
                         'history_club_url': entry.get('club_url', ''),
                         'role': entry.get('role', ''),
@@ -423,6 +467,9 @@ def run_multiple_leagues_scraper(league_urls):
             
             # Process each manager
             for manager in managers:
+                # Get manager profile info (date of birth, preferred formation)
+                profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+                
                 career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
                 
                 for entry in career_history:
@@ -434,6 +481,8 @@ def run_multiple_leagues_scraper(league_urls):
                         'manager': manager['name'],
                         'manager_id': manager['id'],
                         'manager_role': manager.get('role', 'Manager'),
+                        'date_of_birth': profile_info.get('date_of_birth', ''),
+                        'preferred_formation': profile_info.get('preferred_formation', ''),
                         'history_club': entry.get('club', ''),
                         'history_club_url': entry.get('club_url', ''),
                         'role': entry.get('role', ''),
@@ -528,6 +577,9 @@ def run_continent_scraper(continent):
             
             # Process each manager
             for manager in managers:
+                # Get manager profile info (date of birth, preferred formation)
+                profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+                
                 career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
                 
                 for entry in career_history:
@@ -539,6 +591,8 @@ def run_continent_scraper(continent):
                         'manager': manager['name'],
                         'manager_id': manager['id'],
                         'manager_role': manager.get('role', 'Manager'),
+                        'date_of_birth': profile_info.get('date_of_birth', ''),
+                        'preferred_formation': profile_info.get('preferred_formation', ''),
                         'history_club': entry.get('club', ''),
                         'history_club_url': entry.get('club_url', ''),
                         'role': entry.get('role', ''),
@@ -603,6 +657,9 @@ def run_single_club_scraper(club_url, club_name):
         for manager in managers:
             print(f"  -> Processing {manager.get('role', 'Manager')}: {manager['name']}")
             
+            # Get manager profile info (date of birth, preferred formation)
+            profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+            
             # Get career history
             career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
             
@@ -616,6 +673,8 @@ def run_single_club_scraper(club_url, club_name):
                     'manager': manager['name'],
                     'manager_id': manager['id'],
                     'manager_role': manager.get('role', 'Manager'),
+                    'date_of_birth': profile_info.get('date_of_birth', ''),
+                    'preferred_formation': profile_info.get('preferred_formation', ''),
                     'history_club': entry.get('club', ''),
                     'history_club_url': entry.get('club_url', ''),
                     'role': entry.get('role', ''),
@@ -692,6 +751,9 @@ def run_multiple_clubs_scraper(clubs):
             for manager in managers:
                 print(f"  -> Processing {manager.get('role', 'Manager')}: {manager['name']}")
                 
+                # Get manager profile info (date of birth, preferred formation)
+                profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+                
                 # Get career history
                 career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
                 
@@ -705,6 +767,8 @@ def run_multiple_clubs_scraper(clubs):
                         'manager': manager['name'],
                         'manager_id': manager['id'],
                         'manager_role': manager.get('role', 'Manager'),
+                        'date_of_birth': profile_info.get('date_of_birth', ''),
+                        'preferred_formation': profile_info.get('preferred_formation', ''),
                         'history_club': entry.get('club', ''),
                         'history_club_url': entry.get('club_url', ''),
                         'role': entry.get('role', ''),
@@ -738,6 +802,32 @@ def run_multiple_clubs_scraper(clubs):
     finally:
         scraper_state['running'] = False
         print("Multiple clubs scraper finished")
+
+def run_manager_scraper(manager_id):
+    """Run scraper for a specific manager by ID"""
+    global scraper_state, scraper_instance
+    
+    try:
+        print(f"Starting scraper for manager ID: {manager_id}")
+        scraper_state['progress']['status'] = f'Scraping manager ID: {manager_id}...'
+        scraper_state['progress']['current'] = 0
+        scraper_state['progress']['total'] = 1
+        
+        results = scraper_instance.scrape_manager_by_id(manager_id)
+        
+        print(f"Scraper finished with {len(results)} results for manager ID: {manager_id}")
+        scraper_state['results'] = results
+        scraper_state['progress']['current'] = 1
+        scraper_state['progress']['status'] = 'completed'
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in manager scraper: {str(e)}")
+        print(traceback.format_exc())
+        scraper_state['progress']['status'] = f'error: {str(e)}'
+    finally:
+        scraper_state['running'] = False
+        print("Manager scraper finished")
 
 if __name__ == '__main__':
     import os

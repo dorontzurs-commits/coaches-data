@@ -618,8 +618,8 @@ class TransfermarktScraper:
                                             if indicator in context_text and indicator != 'manager':
                                                 has_other_indicator_near = True
                                                 print(f"  -> [DEBUG] EXCLUDED - Found '{indicator}' near 'manager' for {name}")
-                                                break
-                                    
+                                        break
+                                
                                     if has_other_indicator_near:
                                         print(f"  -> [DEBUG] EXCLUDED - Found other role indicator near 'manager' for {name}")
                                     else:
@@ -658,6 +658,115 @@ class TransfermarktScraper:
             return match.group(1)
         
         return None
+    
+    def scrape_manager_profile_info(self, profile_url):
+        """
+        Scrape additional information from manager's profile page
+        
+        Args:
+            profile_url: URL of the manager's profile page
+            
+        Returns:
+            Dict with 'date_of_birth' and 'preferred_formation' keys
+        """
+        if not profile_url:
+            return {'date_of_birth': '', 'preferred_formation': ''}
+        
+        print(f"  -> Fetching manager profile info from: {profile_url}")
+        soup = self._get_page(profile_url)
+        if not soup:
+            print(f"  -> Failed to fetch manager profile page")
+            return {'date_of_birth': '', 'preferred_formation': ''}
+        
+        info = {
+            'date_of_birth': '',
+            'preferred_formation': ''
+        }
+        
+        # Extract Date of Birth
+        # Look for date of birth in the profile info section
+        # Usually appears as "Date of birth: DD/MM/YYYY" or in a table row
+        dob_patterns = [
+            r'date\s+of\s+birth[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'geburtstag[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'geboren[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{4})',
+            r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})'  # Generic date pattern
+        ]
+        
+        # Look in info table or text content
+        info_table = soup.find('table', class_='auflistung')
+        if not info_table:
+            info_table = soup.find('table')
+        
+        if info_table:
+            rows = info_table.find_all('tr')
+            for row in rows:
+                row_text = row.get_text().lower()
+                # Check if this row contains date of birth info
+                if 'date of birth' in row_text or 'geburtstag' in row_text or 'geboren' in row_text:
+                    # Extract date from this row
+                    for pattern in dob_patterns:
+                        match = re.search(pattern, row_text, re.I)
+                        if match:
+                            date_str = match.group(1)
+                            # Format: DD/MM/YYYY or DD-MM-YYYY
+                            info['date_of_birth'] = date_str
+                            print(f"    -> Found date of birth: {date_str}")
+                            break
+                    if info['date_of_birth']:
+                        break
+        
+        # If not found in table, search in all text
+        if not info['date_of_birth']:
+            page_text = soup.get_text().lower()
+            for pattern in dob_patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    date_str = match.group(1)
+                    info['date_of_birth'] = date_str
+                    print(f"    -> Found date of birth (in page text): {date_str}")
+                    break
+        
+        # Extract Preferred Formation
+        # Look for formation info - usually appears as "Preferred formation: 4-3-3" or similar
+        formation_patterns = [
+            r'preferred\s+formation[:\s]+([\d-]+)',
+            r'lieblingsformation[:\s]+([\d-]+)',
+            r'formation[:\s]+([\d-]+)',
+            r'(\d+[-]\d+[-]\d+)',  # Pattern like 4-3-3, 4-4-2, etc.
+            r'(\d+[-]\d+)'  # Pattern like 4-3, 3-5-2, etc.
+        ]
+        
+        # Look in info table
+        if info_table:
+            rows = info_table.find_all('tr')
+            for row in rows:
+                row_text = row.get_text().lower()
+                # Check if this row contains formation info
+                if 'formation' in row_text or 'lieblingsformation' in row_text:
+                    # Extract formation from this row
+                    for pattern in formation_patterns:
+                        match = re.search(pattern, row_text, re.I)
+                        if match:
+                            formation_str = match.group(1)
+                            info['preferred_formation'] = formation_str
+                            print(f"    -> Found preferred formation: {formation_str}")
+                            break
+                    if info['preferred_formation']:
+                        break
+        
+        # If not found in table, search in all text
+        if not info['preferred_formation']:
+            page_text = soup.get_text().lower()
+            for pattern in formation_patterns:
+                match = re.search(pattern, page_text, re.I)
+                if match:
+                    formation_str = match.group(1)
+                    info['preferred_formation'] = formation_str
+                    print(f"    -> Found preferred formation (in page text): {formation_str}")
+                    break
+        
+        return info
     
     def scrape_coach_history(self, coach_name, coach_id):
         """
@@ -910,6 +1019,124 @@ class TransfermarktScraper:
         slug = re.sub(r'[-\s]+', '-', slug)
         return slug.strip('-')
     
+    def scrape_manager_by_id(self, manager_id):
+        """
+        Scrape all data for a specific manager by ID
+        
+        Args:
+            manager_id: Manager ID
+            
+        Returns:
+            List of dicts with manager profile info and career history
+        """
+        if not manager_id:
+            return []
+        
+        print(f"Scraping manager with ID: {manager_id}")
+        
+        # Try to access manager profile page directly by ID
+        # Transfermarkt URL format: /trainer/{id} or /profil/trainer/{id}
+        profile_urls = [
+            f'{self.base_url}/trainer/{manager_id}',
+            f'{self.base_url}/profil/trainer/{manager_id}',
+            f'{self.base_url}/trainer/profil/trainer/{manager_id}'
+        ]
+        
+        manager_name = None
+        profile_url = None
+        
+        # Try to find the manager's profile page and extract name
+        for url in profile_urls:
+            print(f"  -> Trying profile URL: {url}")
+            soup = self._get_page(url)
+            if soup:
+                # Try to extract manager name from the page
+                # Usually in h1 or in a specific div
+                name_elements = [
+                    soup.find('h1'),
+                    soup.find('div', class_='data-header__headline-wrapper'),
+                    soup.find('span', class_='data-header__headline'),
+                    soup.find('div', class_='data-header__headline'),
+                    soup.find('h1', class_='data-header__headline'),
+                    soup.find('div', {'class': re.compile(r'.*headline.*', re.I)}),
+                    soup.find('span', {'class': re.compile(r'.*headline.*', re.I)})
+                ]
+                
+                for elem in name_elements:
+                    if elem:
+                        name_text = elem.get_text().strip()
+                        # Clean up the name - remove extra whitespace and newlines
+                        name_text = ' '.join(name_text.split())
+                        if name_text and len(name_text) > 2:  # Make sure it's a valid name
+                            manager_name = name_text
+                            profile_url = url
+                            print(f"  -> Found manager name: {manager_name}")
+                            break
+                
+                # If still not found, try to find any link with trainer in it
+                if not manager_name:
+                    trainer_links = soup.find_all('a', href=re.compile(r'/trainer/'))
+                    for link in trainer_links:
+                        link_text = link.get_text().strip()
+                        if link_text and len(link_text) > 2:
+                            manager_name = link_text
+                            profile_url = url
+                            print(f"  -> Found manager name from link: {manager_name}")
+                            break
+                
+                if manager_name:
+                    break
+        
+        if not manager_name:
+            print(f"  -> Could not find manager name for ID: {manager_id}")
+            return []
+        
+        # Get manager profile info (date of birth, preferred formation)
+        profile_info = self.scrape_manager_profile_info(profile_url)
+        
+        # Get career history
+        career_history = self.scrape_coach_history(manager_name, manager_id)
+        
+        # Build results in the same format as other scrapers
+        results = []
+        for entry in career_history:
+            # Skip entries that don't have role "Manager" exactly
+            if entry.get('role') != 'Manager':
+                continue
+            
+            results.append({
+                'league': '',  # Not available when scraping by manager ID
+                'league_country': '',
+                'current_club': '',  # Not available when scraping by manager ID
+                'current_club_url': '',
+                'manager': manager_name,
+                'manager_id': manager_id,
+                'manager_role': 'Manager',
+                'date_of_birth': profile_info.get('date_of_birth', ''),
+                'preferred_formation': profile_info.get('preferred_formation', ''),
+                'history_club': entry.get('club', ''),
+                'history_club_url': entry.get('club_url', ''),
+                'role': entry.get('role', ''),
+                'appointed_season': entry.get('appointed_season', ''),
+                'appointed_date': entry.get('appointed_date', ''),
+                'until_season': entry.get('until_season', ''),
+                'until_date': entry.get('until_date', ''),
+                'period_from': entry.get('period_from', ''),
+                'period_until': entry.get('period_until', ''),
+                'days_in_charge': entry.get('days_in_charge', ''),
+                'matches': entry.get('matches', ''),
+                'wins': entry.get('wins', ''),
+                'draws': entry.get('draws', ''),
+                'losses': entry.get('losses', ''),
+                'players_used': entry.get('players_used', ''),
+                'avg_goals_for': entry.get('avg_goals_for', ''),
+                'avg_goals_against': entry.get('avg_goals_against', ''),
+                'points_per_match': entry.get('points_per_match', '')
+            })
+        
+        print(f"Scraped {len(results)} career entries for manager {manager_name} (ID: {manager_id})")
+        return results
+    
     def scrape_all_clubs(self):
         """
         Main method: Scrape all clubs from European leagues, get managers (including Caretaker),
@@ -969,6 +1196,9 @@ class TransfermarktScraper:
             for manager in managers:
                 print(f"  -> Found {manager.get('role', 'Manager')}: {manager['name']} (ID: {manager['id']})")
                 
+                # Get manager profile info (date of birth, preferred formation)
+                profile_info = self.scrape_manager_profile_info(manager.get('profile_url', ''))
+                
                 # Get career history
                 career_history = self.scrape_coach_history(manager['name'], manager['id'])
                 
@@ -988,6 +1218,8 @@ class TransfermarktScraper:
                         'manager': manager['name'],
                         'manager_id': manager['id'],
                         'manager_role': manager.get('role', 'Manager'),  # Manager or Caretaker Manager
+                        'date_of_birth': profile_info.get('date_of_birth', ''),
+                        'preferred_formation': profile_info.get('preferred_formation', ''),
                         'history_club': entry.get('club', ''),
                         'history_club_url': entry.get('club_url', ''),
                         'role': entry.get('role', ''),
