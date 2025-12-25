@@ -48,7 +48,12 @@ function App() {
   const [loadingLeagues, setLoadingLeagues] = useState(false)
   const [loadingClubs, setLoadingClubs] = useState(false)
   const [showAnimation, setShowAnimation] = useState(false)
-  const [managerId, setManagerId] = useState('')
+  
+  // Entity type and ID for URL-based scraping
+  const [coachEntityType, setCoachEntityType] = useState('') // 'manager' or 'league'
+  const [coachEntityId, setCoachEntityId] = useState('')
+  const [playerEntityType, setPlayerEntityType] = useState('') // 'league' or 'club'
+  const [playerEntityId, setPlayerEntityId] = useState('')
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -182,12 +187,25 @@ function App() {
     try {
       if (activeTab === 'coaches') {
         // Coach scraper logic
-        if (managerId && managerId.trim() !== '') {
-          await axios.post(`${API_BASE}/start-manager`, {
-            manager_id: managerId.trim()
-          })
-          return
+        // Check for URL-based scraping first
+        if (coachEntityType && coachEntityId && coachEntityId.trim() !== '') {
+          if (coachEntityType === 'manager') {
+            // Extract manager ID from URL if it's a URL, otherwise treat as ID
+            const managerId = coachEntityId.trim()
+            const idMatch = managerId.match(/\/profil\/trainer\/(\d+)/)
+            const extractedId = idMatch ? idMatch[1] : managerId
+            await axios.post(`${API_BASE}/start-manager`, {
+              manager_id: extractedId
+            })
+            return
+          } else if (coachEntityType === 'league') {
+            await axios.post(`${API_BASE}/start`, {
+              league_url: coachEntityId.trim()
+            })
+            return
+          }
         }
+        
         
         if (selectedClubs.length > 0) {
           if (selectedClubs.length === 1) {
@@ -231,6 +249,22 @@ function App() {
         }
       } else {
         // Player scraper logic
+        // Check for URL-based scraping first
+        if (playerEntityType && playerEntityId && playerEntityId.trim() !== '') {
+          if (playerEntityType === 'league') {
+            await axios.post(`${API_BASE}/player-start`, {
+              league_url: playerEntityId.trim()
+            })
+            return
+          } else if (playerEntityType === 'club') {
+            await axios.post(`${API_BASE}/player-start-club`, {
+              club_url: playerEntityId.trim(),
+              club_name: 'Club from URL' // Will be extracted from URL if needed
+            })
+            return
+          }
+        }
+        
         if (selectedClubs.length > 0) {
           if (selectedClubs.length === 1) {
             const club = selectedClubs[0]
@@ -325,7 +359,10 @@ function App() {
       setSelectedContinent('')
       setSelectedLeagues([])
       setSelectedClubs([])
-      setManagerId('')
+      setCoachEntityType('')
+      setCoachEntityId('')
+      setPlayerEntityType('')
+      setPlayerEntityId('')
       setLeagues([])
       setClubs([])
     } catch (err) {
@@ -532,31 +569,115 @@ function App() {
 
       <div className="controls">
         <div className="selection-section">
+          {/* ID-based scraping section */}
           {activeTab === 'coaches' && (
-            <div className="select-group">
-              <label htmlFor="manager-id-input">Manager ID (optional):</label>
-              <input
-                id="manager-id-input"
-                type="text"
-                value={managerId}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/[^0-9]/g, '')
-                  setManagerId(value)
-                }}
-                placeholder="Enter Manager ID (numbers only)"
-                disabled={currentStatus.running}
-                style={{
-                  padding: '8px 12px',
-                  fontSize: '1rem',
-                  border: '1px solid #475569',
-                  borderRadius: '4px',
-                  backgroundColor: '#1e293b',
-                  color: '#e2e8f0',
-                  width: '100%',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
+            <>
+              <div className="select-group">
+                <label htmlFor="coach-entity-type">Scrape by URL (optional):</label>
+                <Select
+                  id="coach-entity-type"
+                  value={coachEntityType ? { value: coachEntityType, label: coachEntityType === 'manager' ? 'Manager' : 'League' } : null}
+                  onChange={(option) => {
+                    setCoachEntityType(option ? option.value : '')
+                    setCoachEntityId('') // Clear ID when changing type
+                  }}
+                  options={[
+                    { value: 'manager', label: 'Manager' },
+                    { value: 'league', label: 'League' }
+                  ]}
+                  isDisabled={currentStatus.running}
+                  placeholder="-- Select Entity Type --"
+                  isClearable
+                  className="react-select-container"
+                  classNamePrefix="react-select"
+                />
+              </div>
+              {coachEntityType && (
+                <div className="select-group">
+                  <label htmlFor="coach-entity-id">
+                    {coachEntityType === 'manager' ? 'Manager URL' : 'League URL'}:
+                  </label>
+                  <input
+                    id="coach-entity-id"
+                    type="text"
+                    value={coachEntityId}
+                    onChange={(e) => {
+                      // Allow full URL input
+                      setCoachEntityId(e.target.value)
+                    }}
+                    placeholder={coachEntityType === 'manager' 
+                      ? 'Enter Manager URL (e.g., https://www.transfermarkt.com/.../profil/trainer/12345)' 
+                      : 'Enter League URL (e.g., https://www.transfermarkt.com/.../startseite/wettbewerb/GB1)'}
+                    disabled={currentStatus.running}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '1rem',
+                      border: '1px solid #475569',
+                      borderRadius: '4px',
+                      backgroundColor: '#1e293b',
+                      color: '#e2e8f0',
+                      width: '100%',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              )}
+            </>
+          )}
+          
+          {activeTab === 'players' && (
+            <>
+              <div className="select-group">
+                <label htmlFor="player-entity-type">Scrape by URL (optional):</label>
+                <Select
+                  id="player-entity-type"
+                  value={playerEntityType ? { value: playerEntityType, label: playerEntityType === 'league' ? 'League' : 'Club' } : null}
+                  onChange={(option) => {
+                    setPlayerEntityType(option ? option.value : '')
+                    setPlayerEntityId('') // Clear ID when changing type
+                  }}
+                  options={[
+                    { value: 'league', label: 'League' },
+                    { value: 'club', label: 'Club' }
+                  ]}
+                  isDisabled={currentStatus.running}
+                  placeholder="-- Select Entity Type --"
+                  isClearable
+                  className="react-select-container"
+                  classNamePrefix="react-select"
+                />
+              </div>
+              {playerEntityType && (
+                <div className="select-group">
+                  <label htmlFor="player-entity-id">
+                    {playerEntityType === 'league' ? 'League URL' : 'Club URL'}:
+                  </label>
+                  <input
+                    id="player-entity-id"
+                    type="text"
+                    value={playerEntityId}
+                    onChange={(e) => {
+                      // Allow full URL input
+                      setPlayerEntityId(e.target.value)
+                    }}
+                    placeholder={playerEntityType === 'league'
+                      ? 'Enter League URL (e.g., https://www.transfermarkt.com/.../startseite/wettbewerb/GB1)'
+                      : 'Enter Club URL (e.g., https://www.transfermarkt.com/.../startseite/verein/418)'}
+                    disabled={currentStatus.running}
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '1rem',
+                      border: '1px solid #475569',
+                      borderRadius: '4px',
+                      backgroundColor: '#1e293b',
+                      color: '#e2e8f0',
+                      width: '100%',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              )}
+            </>
           )}
 
           <div className="select-group">
@@ -566,7 +687,7 @@ function App() {
               value={continents.find(c => c.value === selectedContinent) || null}
               onChange={(option) => setSelectedContinent(option ? option.value : '')}
               options={continents}
-              isDisabled={currentStatus.running || (activeTab === 'coaches' && managerId !== '')}
+                isDisabled={currentStatus.running || (activeTab === 'coaches' && coachEntityId !== '') || (activeTab === 'players' && playerEntityId !== '')}
               placeholder="-- Select a Continent --"
               isClearable
               className="react-select-container"
@@ -591,7 +712,7 @@ function App() {
                   value: league.id || league.url,
                   label: `${league.name}${league.country ? ` (${league.country})` : ''}`
                 }))}
-                isDisabled={currentStatus.running || loadingLeagues || (activeTab === 'coaches' && managerId !== '')}
+                isDisabled={currentStatus.running || loadingLeagues || (activeTab === 'coaches' && coachEntityId !== '') || (activeTab === 'players' && playerEntityId !== '')}
                 placeholder={loadingLeagues ? "Loading leagues..." : "-- Select League(s) --"}
                 isClearable
                 closeMenuOnSelect={false}
@@ -622,7 +743,7 @@ function App() {
                   value: club.url,
                   label: `${club.name}${club.leagueName ? ` (${club.leagueName})` : ''}`
                 }))}
-                isDisabled={currentStatus.running || loadingClubs || (activeTab === 'coaches' && managerId !== '')}
+                isDisabled={currentStatus.running || loadingClubs || (activeTab === 'coaches' && coachEntityId !== '') || (activeTab === 'players' && playerEntityId !== '')}
                 placeholder={loadingClubs ? "Loading clubs..." : "-- Select Club(s) --"}
                 isClearable
                 closeMenuOnSelect={false}
@@ -637,7 +758,7 @@ function App() {
           <button 
             className="btn btn-primary" 
             onClick={startScraper} 
-            disabled={currentStatus.running || loading || (activeTab === 'coaches' && managerId === '' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent) || (activeTab === 'players' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent)}
+            disabled={currentStatus.running || loading || (activeTab === 'coaches' && coachEntityId === '' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent) || (activeTab === 'players' && playerEntityId === '' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent)}
           >
             ▶ Start Scraper
           </button>

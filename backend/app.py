@@ -1,3 +1,22 @@
+# Fix encoding for Windows console
+import sys
+
+def safe_str(s):
+    """Convert string to safe ASCII string for Windows console"""
+    if isinstance(s, str):
+        try:
+            # Try to encode as UTF-8 first, then fallback to ASCII with replacement
+            return s.encode('utf-8', 'replace').decode('utf-8', 'replace')
+        except:
+            try:
+                return s.encode('ascii', 'replace').decode('ascii')
+            except:
+                return str(s).encode('ascii', 'replace').decode('ascii')
+    try:
+        return str(s).encode('utf-8', 'replace').decode('utf-8', 'replace')
+    except:
+        return str(s).encode('ascii', 'replace').decode('ascii')
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import threading
@@ -324,7 +343,7 @@ def run_scraper():
         import traceback
         print(f"Error in scraper: {str(e)}")
         print(traceback.format_exc())
-        scraper_state['progress']['status'] = f'error: {str(e)}'
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         scraper_state['running'] = False
         print("Scraper finished")
@@ -364,7 +383,7 @@ def run_league_scraper(league_url, league_name=None):
             
             scraper_state['progress']['current'] = idx + 1
             scraper_state['progress']['total'] = total
-            scraper_state['progress']['current_club'] = club['name']
+            scraper_state['progress']['current_club'] = safe_str(club['name'])
             scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
             print(f"Processing club {idx + 1}/{total}: {club['name']}")
@@ -423,7 +442,7 @@ def run_league_scraper(league_url, league_name=None):
         import traceback
         print(f"Error in league scraper: {str(e)}")
         print(traceback.format_exc())
-        scraper_state['progress']['status'] = f'error: {str(e)}'
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         scraper_state['running'] = False
         print("League scraper finished")
@@ -467,7 +486,7 @@ def run_multiple_leagues_scraper(league_urls):
             
             scraper_state['progress']['current'] = idx + 1
             scraper_state['progress']['total'] = total
-            scraper_state['progress']['current_club'] = club['name']
+            scraper_state['progress']['current_club'] = safe_str(club['name'])
             scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
             print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
@@ -526,7 +545,7 @@ def run_multiple_leagues_scraper(league_urls):
         import traceback
         print(f"Error in multiple leagues scraper: {str(e)}")
         print(traceback.format_exc())
-        scraper_state['progress']['status'] = f'error: {str(e)}'
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         scraper_state['running'] = False
         print("Multiple leagues scraper finished")
@@ -577,7 +596,7 @@ def run_continent_scraper(continent):
             
             scraper_state['progress']['current'] = idx + 1
             scraper_state['progress']['total'] = total
-            scraper_state['progress']['current_club'] = club['name']
+            scraper_state['progress']['current_club'] = safe_str(club['name'])
             scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
             print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
@@ -636,7 +655,7 @@ def run_continent_scraper(continent):
         import traceback
         print(f"Error in continent scraper: {str(e)}")
         print(traceback.format_exc())
-        scraper_state['progress']['status'] = f'error: {str(e)}'
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         scraper_state['running'] = False
         print("Continent scraper finished")
@@ -649,7 +668,7 @@ def run_single_club_scraper(club_url, club_name):
         print(f"Starting scraper for single club: {club_name}")
         scraper_state['progress']['total'] = 1
         scraper_state['progress']['current'] = 0
-        scraper_state['progress']['current_club'] = club_name
+        scraper_state['progress']['current_club'] = safe_str(club_name)
         scraper_state['progress']['status'] = f'Processing {club_name}...'
         
         # Get managers for the club
@@ -718,7 +737,7 @@ def run_single_club_scraper(club_url, club_name):
         import traceback
         print(f"Error in single club scraper: {str(e)}")
         print(traceback.format_exc())
-        scraper_state['progress']['status'] = f'error: {str(e)}'
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         scraper_state['running'] = False
         print("Single club scraper finished")
@@ -745,7 +764,7 @@ def run_multiple_clubs_scraper(clubs):
             club_name = club_info.get('name', 'Unknown Club')
             
             scraper_state['progress']['current'] = idx + 1
-            scraper_state['progress']['current_club'] = club_name
+            scraper_state['progress']['current_club'] = safe_str(club_name)
             scraper_state['progress']['status'] = f'Processing {club_name}...'
             
             print(f"Processing club {idx + 1}/{len(clubs)}: {club_name}")
@@ -812,7 +831,7 @@ def run_multiple_clubs_scraper(clubs):
         import traceback
         print(f"Error in multiple clubs scraper: {str(e)}")
         print(traceback.format_exc())
-        scraper_state['progress']['status'] = f'error: {str(e)}'
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         scraper_state['running'] = False
         print("Multiple clubs scraper finished")
@@ -838,10 +857,47 @@ def run_manager_scraper(manager_id):
         import traceback
         print(f"Error in manager scraper: {str(e)}")
         print(traceback.format_exc())
-        scraper_state['progress']['status'] = f'error: {str(e)}'
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         scraper_state['running'] = False
         print("Manager scraper finished")
+
+@app.route('/api/start-league-by-id', methods=['POST'])
+def start_league_by_id_scraper():
+    """Start scraper for a specific league by ID (for coaches)"""
+    global scraper_instance, scraper_thread, scraper_state
+    
+    if scraper_state['running']:
+        return jsonify({'error': 'Scraper is already running'}), 400
+    
+    try:
+        data = request.json
+        league_id = data.get('league_id')
+        
+        if not league_id:
+            return jsonify({'error': 'league_id is required'}), 400
+        
+        # Validate that league_id is alphanumeric
+        if not re.match(r'^[A-Z0-9]+$', str(league_id)):
+            return jsonify({'error': 'league_id must be alphanumeric (e.g., GB1, ES1)'}), 400
+        
+        scraper_state['running'] = True
+        scraper_state['progress']['status'] = 'starting'
+        scraper_state['results'] = []
+        
+        scraper_instance = TransfermarktScraper(callback=update_progress)
+        
+        scraper_thread = threading.Thread(target=run_league_by_id_scraper, args=(league_id,))
+        scraper_thread.daemon = True
+        scraper_thread.start()
+        
+        return jsonify({'message': f'Scraper started for league ID: {league_id}'})
+    except Exception as e:
+        import traceback
+        print(f"Error in start_league_by_id_scraper: {e}")
+        print(traceback.format_exc())
+        scraper_state['running'] = False
+        return jsonify({'error': str(e)}), 500
 
 # Player scraper endpoints
 @app.route('/api/player-status', methods=['GET'])
@@ -954,6 +1010,17 @@ def start_player_club_scraper():
         if not club_url:
             return jsonify({'error': 'club_url is required'}), 400
         
+        # Extract club name from URL if not provided or is placeholder
+        if not club_name or club_name == 'Unknown Club' or club_name == 'Club from URL':
+            try:
+                soup = TransfermarktScraper()._get_page(club_url)
+                if soup:
+                    name_elem = soup.find('h1')
+                    if name_elem:
+                        club_name = name_elem.get_text().strip()
+            except:
+                pass  # Keep default name if extraction fails
+        
         player_scraper_state['running'] = True
         player_scraper_state['progress']['status'] = 'starting'
         player_scraper_state['results'] = []
@@ -1005,6 +1072,82 @@ def start_player_clubs_scraper():
         player_scraper_state['running'] = False
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/player-start-league-by-id', methods=['POST'])
+def start_player_league_by_id_scraper():
+    """Start player scraper for a specific league by ID"""
+    global player_scraper_instance, player_scraper_thread, player_scraper_state
+    
+    if player_scraper_state['running']:
+        return jsonify({'error': 'Player scraper is already running'}), 400
+    
+    try:
+        data = request.json
+        league_id = data.get('league_id')
+        
+        if not league_id:
+            return jsonify({'error': 'league_id is required'}), 400
+        
+        # Validate that league_id is alphanumeric
+        if not re.match(r'^[A-Z0-9]+$', str(league_id)):
+            return jsonify({'error': 'league_id must be alphanumeric (e.g., GB1, ES1)'}), 400
+        
+        player_scraper_state['running'] = True
+        player_scraper_state['progress']['status'] = 'starting'
+        player_scraper_state['results'] = []
+        
+        player_scraper_instance = TransfermarktScraper(callback=update_player_progress)
+        
+        player_scraper_thread = threading.Thread(target=run_league_by_id_player_scraper, args=(league_id,))
+        player_scraper_thread.daemon = True
+        player_scraper_thread.start()
+        
+        return jsonify({'message': f'Player scraper started for league ID: {league_id}'})
+    except Exception as e:
+        import traceback
+        print(f"Error in start_player_league_by_id_scraper: {e}")
+        print(traceback.format_exc())
+        player_scraper_state['running'] = False
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/player-start-club-by-id', methods=['POST'])
+def start_player_club_by_id_scraper():
+    """Start player scraper for a specific club by ID"""
+    global player_scraper_instance, player_scraper_thread, player_scraper_state
+    
+    if player_scraper_state['running']:
+        return jsonify({'error': 'Player scraper is already running'}), 400
+    
+    try:
+        data = request.json
+        club_id = data.get('club_id')
+        
+        if not club_id:
+            return jsonify({'error': 'club_id is required'}), 400
+        
+        # Validate that club_id is a number
+        try:
+            club_id = str(int(club_id))  # Convert to string and validate it's a number
+        except (ValueError, TypeError):
+            return jsonify({'error': 'club_id must be a valid number'}), 400
+        
+        player_scraper_state['running'] = True
+        player_scraper_state['progress']['status'] = 'starting'
+        player_scraper_state['results'] = []
+        
+        player_scraper_instance = TransfermarktScraper(callback=update_player_progress)
+        
+        player_scraper_thread = threading.Thread(target=run_club_by_id_player_scraper, args=(club_id,))
+        player_scraper_thread.daemon = True
+        player_scraper_thread.start()
+        
+        return jsonify({'message': f'Player scraper started for club ID: {club_id}'})
+    except Exception as e:
+        import traceback
+        print(f"Error in start_player_club_by_id_scraper: {e}")
+        print(traceback.format_exc())
+        player_scraper_state['running'] = False
+        return jsonify({'error': str(e)}), 500
+
 def update_player_progress(current, total, current_club, status):
     """Callback to update player scraper progress"""
     player_scraper_state['progress'] = {
@@ -1031,7 +1174,7 @@ def run_player_scraper():
         import traceback
         print(f"Error in player scraper: {str(e)}")
         print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {str(e)}'
+        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         player_scraper_state['running'] = False
         print("Player scraper finished")
@@ -1068,7 +1211,7 @@ def run_league_player_scraper(league_url, league_name=None):
             
             player_scraper_state['progress']['current'] = idx + 1
             player_scraper_state['progress']['total'] = total
-            player_scraper_state['progress']['current_club'] = club['name']
+            player_scraper_state['progress']['current_club'] = safe_str(club['name'])
             player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
             print(f"Processing club {idx + 1}/{total}: {club['name']}")
@@ -1109,7 +1252,7 @@ def run_league_player_scraper(league_url, league_name=None):
         import traceback
         print(f"Error in league player scraper: {str(e)}")
         print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {str(e)}'
+        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         player_scraper_state['running'] = False
         print("League player scraper finished")
@@ -1151,7 +1294,7 @@ def run_multiple_leagues_player_scraper(league_urls):
             
             player_scraper_state['progress']['current'] = idx + 1
             player_scraper_state['progress']['total'] = total
-            player_scraper_state['progress']['current_club'] = club['name']
+            player_scraper_state['progress']['current_club'] = safe_str(club['name'])
             player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
             print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
@@ -1192,7 +1335,7 @@ def run_multiple_leagues_player_scraper(league_urls):
         import traceback
         print(f"Error in multiple leagues player scraper: {str(e)}")
         print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {str(e)}'
+        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         player_scraper_state['running'] = False
         print("Multiple leagues player scraper finished")
@@ -1240,7 +1383,7 @@ def run_continent_player_scraper(continent):
             
             player_scraper_state['progress']['current'] = idx + 1
             player_scraper_state['progress']['total'] = total
-            player_scraper_state['progress']['current_club'] = club['name']
+            player_scraper_state['progress']['current_club'] = safe_str(club['name'])
             player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
             print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
@@ -1281,7 +1424,7 @@ def run_continent_player_scraper(continent):
         import traceback
         print(f"Error in continent player scraper: {str(e)}")
         print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {str(e)}'
+        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         player_scraper_state['running'] = False
         print("Continent player scraper finished")
@@ -1292,15 +1435,17 @@ def run_single_club_player_scraper(club_url, club_name):
     
     try:
         print(f"Starting player scraper for single club: {club_name}")
+        print(f"  -> Club URL: {club_url}")
         player_scraper_state['progress']['total'] = 1
         player_scraper_state['progress']['current'] = 0
-        player_scraper_state['progress']['current_club'] = club_name
+        player_scraper_state['progress']['current_club'] = safe_str(club_name)
         player_scraper_state['progress']['status'] = f'Processing {club_name}...'
         
         players = player_scraper_instance.get_current_players(club_url)
+        print(f"  -> get_current_players returned {len(players)} players")
         
         if not players:
-            print(f"No players found for {club_name}")
+            print(f"No players found for {club_name} (URL: {club_url})")
             player_scraper_state['results'] = []
             player_scraper_state['progress']['status'] = f'No players found for {club_name}'
             player_scraper_state['running'] = False
@@ -1340,9 +1485,11 @@ def run_single_club_player_scraper(club_url, club_name):
         
     except Exception as e:
         import traceback
-        print(f"Error in single club player scraper: {str(e)}")
-        print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {str(e)}'
+        error_msg = safe_str(str(e))
+        print(f"Error in single club player scraper: {error_msg}")
+        traceback_str = safe_str(traceback.format_exc())
+        print(traceback_str)
+        player_scraper_state['progress']['status'] = f'error: {error_msg}'
     finally:
         player_scraper_state['running'] = False
         print("Single club player scraper finished")
@@ -1368,7 +1515,7 @@ def run_multiple_clubs_player_scraper(clubs):
             club_name = club_info.get('name', 'Unknown Club')
             
             player_scraper_state['progress']['current'] = idx + 1
-            player_scraper_state['progress']['current_club'] = club_name
+            player_scraper_state['progress']['current_club'] = safe_str(club_name)
             player_scraper_state['progress']['status'] = f'Processing {club_name}...'
             
             print(f"Processing club {idx + 1}/{len(clubs)}: {club_name}")
@@ -1414,10 +1561,133 @@ def run_multiple_clubs_player_scraper(clubs):
         import traceback
         print(f"Error in multiple clubs player scraper: {str(e)}")
         print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {str(e)}'
+        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
     finally:
         player_scraper_state['running'] = False
         print("Multiple clubs player scraper finished")
+
+def run_league_by_id_scraper(league_id):
+    """Run scraper for a specific league by ID (for coaches)"""
+    global scraper_state, scraper_instance
+    
+    try:
+        print(f"Starting scraper for league ID: {league_id}")
+        scraper_state['progress']['status'] = f'Fetching league URL for ID: {league_id}...'
+        
+        # Get league URL from ID
+        league_url = scraper_instance.get_league_url_by_id(league_id)
+        
+        if not league_url:
+            print(f"Could not find league URL for ID: {league_id}")
+            scraper_state['results'] = []
+            scraper_state['progress']['status'] = f'League ID {league_id} not found'
+            scraper_state['running'] = False
+            return
+        
+        # Extract league name from URL or use ID
+        league_name = None
+        soup = scraper_instance._get_page(league_url)
+        if soup:
+            # Try to extract league name
+            name_elem = soup.find('h1')
+            if name_elem:
+                league_name = name_elem.get_text().strip()
+        
+        if not league_name:
+            league_name = f'League {league_id}'
+        
+        # Use existing league scraper function
+        run_league_scraper(league_url, league_name)
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in league by ID scraper: {str(e)}")
+        print(traceback.format_exc())
+        scraper_state['progress']['status'] = f'error: {safe_str(e)}'
+        scraper_state['running'] = False
+        print("League by ID scraper finished")
+
+def run_league_by_id_player_scraper(league_id):
+    """Run player scraper for a specific league by ID"""
+    global player_scraper_state, player_scraper_instance
+    
+    try:
+        print(f"Starting player scraper for league ID: {league_id}")
+        player_scraper_state['progress']['status'] = f'Fetching league URL for ID: {league_id}...'
+        
+        # Get league URL from ID
+        league_url = player_scraper_instance.get_league_url_by_id(league_id)
+        
+        if not league_url:
+            print(f"Could not find league URL for ID: {league_id}")
+            player_scraper_state['results'] = []
+            player_scraper_state['progress']['status'] = f'League ID {league_id} not found'
+            player_scraper_state['running'] = False
+            return
+        
+        # Extract league name from URL or use ID
+        league_name = None
+        soup = player_scraper_instance._get_page(league_url)
+        if soup:
+            # Try to extract league name
+            name_elem = soup.find('h1')
+            if name_elem:
+                league_name = name_elem.get_text().strip()
+        
+        if not league_name:
+            league_name = f'League {league_id}'
+        
+        # Use existing league player scraper function
+        run_league_player_scraper(league_url, league_name)
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in league by ID player scraper: {str(e)}")
+        print(traceback.format_exc())
+        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
+        player_scraper_state['running'] = False
+        print("League by ID player scraper finished")
+
+def run_club_by_id_player_scraper(club_id):
+    """Run player scraper for a specific club by ID"""
+    global player_scraper_state, player_scraper_instance
+    
+    try:
+        print(f"Starting player scraper for club ID: {club_id}")
+        player_scraper_state['progress']['status'] = f'Fetching club URL for ID: {club_id}...'
+        
+        # Get club URL from ID
+        club_url = player_scraper_instance.get_club_url_by_id(club_id)
+        
+        if not club_url:
+            print(f"Could not find club URL for ID: {club_id}")
+            player_scraper_state['results'] = []
+            player_scraper_state['progress']['status'] = f'Club ID {club_id} not found'
+            player_scraper_state['running'] = False
+            return
+        
+        # Extract club name from URL or use ID
+        club_name = None
+        soup = player_scraper_instance._get_page(club_url)
+        if soup:
+            # Try to extract club name
+            name_elem = soup.find('h1')
+            if name_elem:
+                club_name = name_elem.get_text().strip()
+        
+        if not club_name:
+            club_name = f'Club {club_id}'
+        
+        # Use existing single club player scraper function
+        run_single_club_player_scraper(club_url, club_name)
+        
+    except Exception as e:
+        import traceback
+        print(f"Error in club by ID player scraper: {str(e)}")
+        print(traceback.format_exc())
+        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
+        player_scraper_state['running'] = False
+        print("Club by ID player scraper finished")
 
 if __name__ == '__main__':
     import os

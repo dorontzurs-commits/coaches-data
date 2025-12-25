@@ -1,3 +1,24 @@
+# Fix encoding for Windows console
+import sys
+
+def safe_str(s):
+    """Convert string to safe string for Windows console"""
+    if s is None:
+        return ''
+    if isinstance(s, str):
+        try:
+            # Try to encode as UTF-8 first, then fallback to ASCII with replacement
+            return s.encode('utf-8', 'replace').decode('utf-8', 'replace')
+        except:
+            try:
+                return s.encode('ascii', 'replace').decode('ascii')
+            except:
+                return str(s).encode('ascii', 'replace').decode('ascii')
+    try:
+        return str(s).encode('utf-8', 'replace').decode('utf-8', 'replace')
+    except:
+        return str(s).encode('ascii', 'replace').decode('ascii')
+
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -1137,6 +1158,182 @@ class TransfermarktScraper:
         print(f"Scraped {len(results)} career entries for manager {manager_name} (ID: {manager_id})")
         return results
     
+    def get_league_url_by_id(self, league_id):
+        """
+        Get league URL by ID
+        
+        Args:
+            league_id: League ID (e.g., 'GB1' for Premier League, 'ES1' for La Liga)
+            
+        Returns:
+            League URL or None if not found
+        """
+        if not league_id:
+            return None
+        
+        # Transfermarkt league URL format: /{slug}/startseite/wettbewerb/{ID}
+        # We need to find the slug by searching through continents
+        
+        # First, try to find the league in the continent pages
+        print(f"  -> Searching for league ID: {league_id}")
+        continents = ['europa', 'amerika', 'afrika', 'asien']
+        
+        for continent in continents:
+            print(f"  -> Checking {continent}...")
+            leagues = self.scrape_leagues_from_continent(continent)
+            for league in leagues:
+                # Check if the league URL contains the ID
+                if league_id in league.get('url', ''):
+                    league_url = league['url']
+                    print(f"  -> Found league: {league['name']} -> {league_url}")
+                    return league_url
+        
+        # If not found, try common slugs for known leagues
+        # Common league slugs mapping (most popular leagues)
+        common_slugs = {
+            'GB1': 'premier-league',
+            'ES1': 'laliga',
+            'IT1': 'serie-a',
+            'FR1': 'ligue-1',
+            'L1': 'ligue-1',
+            'NL1': 'eredivisie',
+            'BE1': 'jupiler-pro-league',
+            'PT1': 'liga-nos',
+            'TR1': 'super-lig',
+            'RU1': 'premier-liga',
+            'PL1': 'ekstraklasa',
+            'GR1': 'super-league-1',
+            'CZ1': '1-liga',
+            'AT1': 'bundesliga',
+            'CH1': 'super-league',
+            'DK1': 'superligaen',
+            'SE1': 'allsvenskan',
+            'NO1': 'eliteserien',
+            'FI1': 'veikkausliiga',
+            'RO1': 'liga-1',
+            'HU1': 'nb-i',
+            'DE1': 'bundesliga',
+            'DE2': '2-bundesliga',
+            'GB2': 'championship',
+            'ES2': 'segunda-division',
+            'IT2': 'serie-b',
+            'FR2': 'ligue-2',
+            'NL2': 'eerste-divisie',
+            'BR1': 'serie-a',
+            'MX1': 'liga-mx',
+            'US1': 'mls',
+            'AR1': 'liga-profesional',
+            'JP1': 'j1-league',
+            'KR1': 'k-league-1',
+            'CN1': 'chinese-super-league',
+            'AU1': 'a-league',
+            'SA1': 'saudi-professional-league',
+        }
+        
+        # Try common slug if available
+        if league_id in common_slugs:
+            slug = common_slugs[league_id]
+            league_url = f'{self.base_url}/{slug}/startseite/wettbewerb/{league_id}'
+            print(f"  -> Trying common slug: {league_url}")
+            soup = self._get_page(league_url)
+            if soup:
+                # Check if page is valid
+                if soup.find('table', class_='items') or soup.find(string=re.compile(r'Clubs', re.I)) or soup.find('h1'):
+                    print(f"  -> Found valid league URL: {league_url}")
+                    return league_url
+        
+        # If still not found, try the format without slug (might work for some leagues)
+        league_urls = [
+            f'{self.base_url}/startseite/wettbewerb/{league_id}',
+            f'{self.base_url}/wettbewerb/{league_id}'
+        ]
+        
+        for url in league_urls:
+            soup = self._get_page(url)
+            if soup:
+                # Check if page is valid
+                if soup.find('table', class_='items') or soup.find(string=re.compile(r'Clubs', re.I)) or soup.find('h1'):
+                    print(f"  -> Found valid league URL: {url}")
+                    return url
+        
+        # If nothing works, return None
+        print(f"  -> Could not find league URL for ID: {league_id}")
+        return None
+    
+    def get_club_url_by_id(self, club_id):
+        """
+        Get club URL by ID
+        
+        Args:
+            club_id: Club ID (e.g., '418' for Real Madrid)
+            
+        Returns:
+            Club URL or None if not found
+        """
+        if not club_id:
+            return None
+        
+        print(f"  -> Searching for club ID: {club_id}")
+        
+        # Transfermarkt club URL format: /{slug}/startseite/verein/{ID}
+        # We need to find the slug by searching through leagues
+        
+        # First, try to find the club in the league pages
+        continents = ['europa', 'amerika', 'afrika', 'asien']
+        
+        for continent in continents:
+            print(f"  -> Checking {continent}...")
+            leagues = self.scrape_leagues_from_continent(continent)
+            for league in leagues:
+                clubs = self.scrape_clubs_from_league(league['url'])
+                for club in clubs:
+                    # Check if club URL contains the ID
+                    if club_id in club.get('url', ''):
+                        club_url = club['url']
+                        print(f"  -> Found club: {club['name']} -> {club_url}")
+                        return club_url
+        
+        # If not found, try common slugs for known clubs (similar to leagues)
+        # But this is harder - we'll try to access the page and extract slug from redirect
+        
+        # Try to access a page that might redirect us to the correct URL
+        test_urls = [
+            f'{self.base_url}/startseite/verein/{club_id}',
+            f'{self.base_url}/verein/{club_id}'
+        ]
+        
+        for url in test_urls:
+            try:
+                response = self.session.get(url, allow_redirects=True, timeout=10)
+                if response.status_code == 200:
+                    # Check if we got redirected to a valid page
+                    final_url = response.url
+                    if club_id in final_url and '/verein/' in final_url:
+                        print(f"  -> Found club URL via redirect: {final_url}")
+                        return final_url
+            except Exception as e:
+                print(f"  -> Error trying URL {url}: {e}")
+                continue
+        
+        # If still not found, try to construct URL from common patterns
+        # Some clubs might work with just the ID in certain formats
+        club_urls = [
+            f'{self.base_url}/startseite/verein/{club_id}',
+            f'{self.base_url}/verein/{club_id}'
+        ]
+        
+        for url in club_urls:
+            soup = self._get_page(url)
+            if soup:
+                # Check if page is valid (has club name or squad table)
+                if soup.find('h1') or soup.find('table', class_='items') or soup.find(string=re.compile(r'Squad|Kader', re.I)):
+                    print(f"  -> Found valid club URL: {url}")
+                    return url
+        
+        # If nothing works, return None
+        print(f"  -> Could not find club URL for ID: {club_id}")
+        return None
+    
     def scrape_all_clubs(self):
         """
         Main method: Scrape all clubs from European leagues, get managers (including Caretaker),
@@ -1255,16 +1452,25 @@ class TransfermarktScraper:
         Returns:
             List of dicts with 'name', 'profile_url', 'id', and 'position'
         """
+        print(f"  -> get_current_players called with URL: {club_url}")
+        
         # Extract club ID and slug from URL
         club_id_match = re.search(r'/verein/(\d+)', club_url)
         if not club_id_match:
+            print(f"  -> ERROR: Could not extract club ID from URL: {club_url}")
             return []
         
         club_id = club_id_match.group(1)
+        print(f"  -> Extracted club ID: {club_id}")
         
-        # Extract club slug from URL
+        # Extract club slug from URL - try multiple patterns
         slug_match = re.search(r'/([^/]+)/startseite/verein/', club_url)
+        if not slug_match:
+            # Try alternative pattern without startseite
+            slug_match = re.search(r'/([^/]+)/verein/', club_url)
+        
         club_slug = slug_match.group(1) if slug_match else ''
+        print(f"  -> Extracted club slug: {club_slug if club_slug else 'N/A'}")
         
         players = []
         
@@ -1278,8 +1484,18 @@ class TransfermarktScraper:
             print(f"  -> Trying squad page: {squad_url}")
             squad_soup = self._get_page(squad_url)
             if squad_soup:
+                print(f"  -> Successfully loaded squad page")
                 # Look for player links - format: /profil/spieler/{id}
                 player_links = squad_soup.find_all('a', href=re.compile(r'/profil/spieler/\d+'))
+                print(f"  -> Found {len(player_links)} player links on squad page")
+                
+                if len(player_links) == 0:
+                    # Try alternative: look for table with players
+                    table = squad_soup.find('table', class_='items')
+                    if table:
+                        print(f"  -> Found table with class 'items', searching for player links inside...")
+                        player_links = table.find_all('a', href=re.compile(r'/profil/spieler/\d+'))
+                        print(f"  -> Found {len(player_links)} player links in table")
                 
                 seen_players = set()
                 for link in player_links:
@@ -1292,49 +1508,56 @@ class TransfermarktScraper:
                         continue
                     seen_players.add(player_id)
                     
-                    name = link.text.strip()
-                    if not name:
-                        # Try to get name from parent elements
-                        parent = link.find_parent(['td', 'div', 'span'])
-                        if parent:
-                            name = parent.get_text().strip()
+                    try:
+                        name = link.text.strip()
+                        if not name:
+                            # Try to get name from parent elements
+                            parent = link.find_parent(['td', 'div', 'span'])
+                            if parent:
+                                name = parent.get_text().strip()
+                    except Exception as e:
+                        print(f"  -> Error extracting name: {safe_str(str(e))}")
+                        name = ''
                     
                     if name:
                         profile_url = urljoin(self.base_url, link['href'])
                         
                         # Extract jersey number from name (format: "#1 Thibaut Courtois" or "1 Thibaut Courtois")
                         jersey_number = ''
-                        player_name = name
+                        player_name = safe_str(name)  # Make sure name is safe
                         
                         # Check if name starts with # followed by number
-                        jersey_match = re.match(r'^#?(\d+)\s+(.+)$', name)
+                        jersey_match = re.match(r'^#?(\d+)\s+(.+)$', player_name)
                         if jersey_match:
                             jersey_number = jersey_match.group(1)
-                            player_name = jersey_match.group(2).strip()
+                            player_name = safe_str(jersey_match.group(2).strip())
                         else:
                             # Try alternative pattern: number at the start
-                            jersey_match = re.match(r'^(\d+)\s+(.+)$', name)
+                            jersey_match = re.match(r'^(\d+)\s+(.+)$', player_name)
                             if jersey_match:
                                 jersey_number = jersey_match.group(1)
-                                player_name = jersey_match.group(2).strip()
+                                player_name = safe_str(jersey_match.group(2).strip())
                         
                         # Try to extract position from the row
                         position = ''
-                        row = link.find_parent('tr')
-                        if row:
-                            cells = row.find_all('td')
-                            # Position is usually in one of the cells
-                            for cell in cells:
-                                cell_text = cell.get_text().strip().lower()
-                                # Common positions
-                                if any(pos in cell_text for pos in ['goalkeeper', 'defender', 'midfielder', 'forward', 'attacker', 
-                                                                     'torwart', 'verteidiger', 'mittelfeld', 'stürmer', 'angreifer']):
-                                    position = cell.get_text().strip()
-                                    break
-                                # Or look for position abbreviations
-                                if cell_text in ['gk', 'df', 'mf', 'fw', 'att']:
-                                    position = cell_text.upper()
-                                    break
+                        try:
+                            row = link.find_parent('tr')
+                            if row:
+                                cells = row.find_all('td')
+                                # Position is usually in one of the cells
+                                for cell in cells:
+                                    cell_text = safe_str(cell.get_text().strip().lower())
+                                    # Common positions
+                                    if any(pos in cell_text for pos in ['goalkeeper', 'defender', 'midfielder', 'forward', 'attacker', 
+                                                                         'torwart', 'verteidiger', 'mittelfeld', 'stürmer', 'angreifer']):
+                                        position = safe_str(cell.get_text().strip())
+                                        break
+                                    # Or look for position abbreviations
+                                    if cell_text in ['gk', 'df', 'mf', 'fw', 'att']:
+                                        position = cell_text.upper()
+                                        break
+                        except Exception as e:
+                            print(f"  -> Error extracting position: {safe_str(str(e))}")
                         
                         players.append({
                             'name': player_name,  # Store clean name without jersey number
@@ -1346,8 +1569,14 @@ class TransfermarktScraper:
                         print(f"  -> Found player: {player_name} (ID: {player_id}, Jersey: {jersey_number if jersey_number else 'N/A'})")
                 
                 if players:
+                    print(f"  -> Successfully found {len(players)} players from {squad_url}")
                     return players
+                else:
+                    print(f"  -> No players found on {squad_url}")
+            else:
+                print(f"  -> Failed to load squad page: {squad_url}")
         
+        print(f"  -> Returning {len(players)} players total")
         return players
     
     def scrape_player_profile_info(self, profile_url):
@@ -1413,26 +1642,30 @@ class TransfermarktScraper:
         ]
         for elem in name_elements:
             if elem:
-                name_text = elem.get_text().strip()
-                if name_text:
-                    # Remove jersey number from name if present (format: "#1 Thibaut Courtois" or "1 Thibaut Courtois")
-                    jersey_match = re.match(r'^#?(\d+)\s+(.+)$', name_text)
-                    if jersey_match:
-                        # If jersey number not already set, extract it
-                        if not info['jersey_number']:
-                            info['jersey_number'] = jersey_match.group(1)
-                        info['player_name'] = jersey_match.group(2).strip()
-                    else:
-                        # Try alternative pattern: number at the start
-                        jersey_match = re.match(r'^(\d+)\s+(.+)$', name_text)
+                try:
+                    name_text = safe_str(elem.get_text().strip())
+                    if name_text:
+                        # Remove jersey number from name if present (format: "#1 Thibaut Courtois" or "1 Thibaut Courtois")
+                        jersey_match = re.match(r'^#?(\d+)\s+(.+)$', name_text)
                         if jersey_match:
+                            # If jersey number not already set, extract it
                             if not info['jersey_number']:
                                 info['jersey_number'] = jersey_match.group(1)
-                            info['player_name'] = jersey_match.group(2).strip()
+                            info['player_name'] = safe_str(jersey_match.group(2).strip())
                         else:
-                            info['player_name'] = name_text
-                    print(f"    -> Found player name: {info['player_name']}")
-                    break
+                            # Try alternative pattern: number at the start
+                            jersey_match = re.match(r'^(\d+)\s+(.+)$', name_text)
+                            if jersey_match:
+                                if not info['jersey_number']:
+                                    info['jersey_number'] = jersey_match.group(1)
+                                info['player_name'] = safe_str(jersey_match.group(2).strip())
+                            else:
+                                info['player_name'] = safe_str(name_text)
+                        print(f"    -> Found player name: {info['player_name']}")
+                        break
+                except Exception as e:
+                    print(f"    -> Error extracting player name: {safe_str(str(e))}")
+                    continue
         
         # Extract info from the page - Transfermarkt uses spans/divs, not tables
         # Look for labels and their following values
@@ -1594,14 +1827,26 @@ class TransfermarktScraper:
         if not info['current_market_value']:
             market_value_divs = soup.find_all(['div', 'span'], class_=re.compile(r'value|marktwert', re.I))
             for div in market_value_divs:
-                text = div.get_text()
-                value_match = re.search(r'€\s*([\d.,]+)\s*[mM]', text)
-                if value_match:
-                    info['current_market_value'] = '€' + value_match.group(1) + 'm'
-                    print(f"    -> Found market value (alternative): {info['current_market_value']}")
-                    break
+                try:
+                    text = safe_str(div.get_text())
+                    value_match = re.search(r'€\s*([\d.,]+)\s*[mM]', text)
+                    if value_match:
+                        info['current_market_value'] = '€' + value_match.group(1) + 'm'
+                        print(f"    -> Found market value (alternative): {info['current_market_value']}")
+                        break
+                except Exception as e:
+                    print(f"    -> Error extracting market value: {safe_str(str(e))}")
+                    continue
         
-        return info
+        # Ensure all string values are safe for Windows console
+        safe_info = {}
+        for key, value in info.items():
+            if isinstance(value, str):
+                safe_info[key] = safe_str(value)
+            else:
+                safe_info[key] = value
+        
+        return safe_info
     
     def scrape_all_players(self):
         """
