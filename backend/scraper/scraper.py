@@ -1244,3 +1244,442 @@ class TransfermarktScraper:
         print(f"Total results: {len(results)}")
         self._update_progress(total, total, '', 'completed')
         return results
+    
+    def get_current_players(self, club_url):
+        """
+        Get all current players from club's squad page
+        
+        Args:
+            club_url: URL of the club page
+            
+        Returns:
+            List of dicts with 'name', 'profile_url', 'id', and 'position'
+        """
+        # Extract club ID and slug from URL
+        club_id_match = re.search(r'/verein/(\d+)', club_url)
+        if not club_id_match:
+            return []
+        
+        club_id = club_id_match.group(1)
+        
+        # Extract club slug from URL
+        slug_match = re.search(r'/([^/]+)/startseite/verein/', club_url)
+        club_slug = slug_match.group(1) if slug_match else ''
+        
+        players = []
+        
+        # Access squad page - URL format: /{club-slug}/kader/verein/{club_id}
+        squad_urls = []
+        if club_slug:
+            squad_urls.append(f'{self.base_url}/{club_slug}/kader/verein/{club_id}')
+        squad_urls.append(f'{self.base_url}/kader/verein/{club_id}')
+        
+        for squad_url in squad_urls:
+            print(f"  -> Trying squad page: {squad_url}")
+            squad_soup = self._get_page(squad_url)
+            if squad_soup:
+                # Look for player links - format: /profil/spieler/{id}
+                player_links = squad_soup.find_all('a', href=re.compile(r'/profil/spieler/\d+'))
+                
+                seen_players = set()
+                for link in player_links:
+                    player_id_match = re.search(r'/profil/spieler/(\d+)', link.get('href', ''))
+                    if not player_id_match:
+                        continue
+                    
+                    player_id = player_id_match.group(1)
+                    if player_id in seen_players:
+                        continue
+                    seen_players.add(player_id)
+                    
+                    name = link.text.strip()
+                    if not name:
+                        # Try to get name from parent elements
+                        parent = link.find_parent(['td', 'div', 'span'])
+                        if parent:
+                            name = parent.get_text().strip()
+                    
+                    if name:
+                        profile_url = urljoin(self.base_url, link['href'])
+                        
+                        # Extract jersey number from name (format: "#1 Thibaut Courtois" or "1 Thibaut Courtois")
+                        jersey_number = ''
+                        player_name = name
+                        
+                        # Check if name starts with # followed by number
+                        jersey_match = re.match(r'^#?(\d+)\s+(.+)$', name)
+                        if jersey_match:
+                            jersey_number = jersey_match.group(1)
+                            player_name = jersey_match.group(2).strip()
+                        else:
+                            # Try alternative pattern: number at the start
+                            jersey_match = re.match(r'^(\d+)\s+(.+)$', name)
+                            if jersey_match:
+                                jersey_number = jersey_match.group(1)
+                                player_name = jersey_match.group(2).strip()
+                        
+                        # Try to extract position from the row
+                        position = ''
+                        row = link.find_parent('tr')
+                        if row:
+                            cells = row.find_all('td')
+                            # Position is usually in one of the cells
+                            for cell in cells:
+                                cell_text = cell.get_text().strip().lower()
+                                # Common positions
+                                if any(pos in cell_text for pos in ['goalkeeper', 'defender', 'midfielder', 'forward', 'attacker', 
+                                                                     'torwart', 'verteidiger', 'mittelfeld', 'stürmer', 'angreifer']):
+                                    position = cell.get_text().strip()
+                                    break
+                                # Or look for position abbreviations
+                                if cell_text in ['gk', 'df', 'mf', 'fw', 'att']:
+                                    position = cell_text.upper()
+                                    break
+                        
+                        players.append({
+                            'name': player_name,  # Store clean name without jersey number
+                            'jersey_number': jersey_number,  # Store jersey number separately
+                            'profile_url': profile_url,
+                            'id': player_id,
+                            'position': position
+                        })
+                        print(f"  -> Found player: {player_name} (ID: {player_id}, Jersey: {jersey_number if jersey_number else 'N/A'})")
+                
+                if players:
+                    return players
+        
+        return players
+    
+    def scrape_player_profile_info(self, profile_url):
+        """
+        Scrape player information from player's profile page
+        
+        Args:
+            profile_url: URL of the player's profile page
+            
+        Returns:
+            Dict with player information fields
+        """
+        if not profile_url:
+            return {
+                'player_name': '',
+                'jersey_number': '',
+                'nationality': '',
+                'date_of_birth': '',
+                'caps': '',
+                'goals': '',
+                'position': '',
+                'height': '',
+                'foot': '',
+                'current_market_value': ''
+            }
+        
+        print(f"  -> Fetching player profile info from: {profile_url}")
+        soup = self._get_page(profile_url)
+        if not soup:
+            print(f"  -> Failed to fetch player profile page")
+            return {
+                'player_name': '',
+                'jersey_number': '',
+                'nationality': '',
+                'date_of_birth': '',
+                'caps': '',
+                'goals': '',
+                'position': '',
+                'height': '',
+                'foot': '',
+                'current_market_value': ''
+            }
+        
+        info = {
+            'player_name': '',
+            'jersey_number': '',
+            'nationality': '',
+            'date_of_birth': '',
+            'caps': '',
+            'goals': '',
+            'position': '',
+            'height': '',
+            'foot': '',
+            'current_market_value': ''
+        }
+        
+        # Extract Player Name
+        name_elements = [
+            soup.find('h1', class_='data-header__headline-wrapper'),
+            soup.find('h1'),
+            soup.find('div', class_='data-header__headline-wrapper'),
+            soup.find('span', class_='data-header__headline')
+        ]
+        for elem in name_elements:
+            if elem:
+                name_text = elem.get_text().strip()
+                if name_text:
+                    # Remove jersey number from name if present (format: "#1 Thibaut Courtois" or "1 Thibaut Courtois")
+                    jersey_match = re.match(r'^#?(\d+)\s+(.+)$', name_text)
+                    if jersey_match:
+                        # If jersey number not already set, extract it
+                        if not info['jersey_number']:
+                            info['jersey_number'] = jersey_match.group(1)
+                        info['player_name'] = jersey_match.group(2).strip()
+                    else:
+                        # Try alternative pattern: number at the start
+                        jersey_match = re.match(r'^(\d+)\s+(.+)$', name_text)
+                        if jersey_match:
+                            if not info['jersey_number']:
+                                info['jersey_number'] = jersey_match.group(1)
+                            info['player_name'] = jersey_match.group(2).strip()
+                        else:
+                            info['player_name'] = name_text
+                    print(f"    -> Found player name: {info['player_name']}")
+                    break
+        
+        # Extract info from the page - Transfermarkt uses spans/divs, not tables
+        # Look for labels and their following values
+        
+        # Nationality - look for Citizenship label
+        citizenship_elem = soup.find(string=re.compile(r'Citizenship', re.I))
+        if citizenship_elem:
+            parent = citizenship_elem.find_parent(['div', 'span', 'li'])
+            if parent:
+                # Look for flag image
+                flag_img = parent.find('img', alt=True)
+                if flag_img:
+                    info['nationality'] = flag_img.get('alt', '').strip()
+                    print(f"    -> Found nationality: {info['nationality']}")
+                else:
+                    # Extract text after "Citizenship:"
+                    text = parent.get_text()
+                    # Remove "Citizenship:" and get the country name
+                    country_match = re.search(r'Citizenship:\s*([^\n]+)', text, re.I)
+                    if country_match:
+                        info['nationality'] = country_match.group(1).strip()
+                        print(f"    -> Found nationality: {info['nationality']}")
+        
+        # Date of Birth
+        dob_elem = soup.find(string=re.compile(r'Date of birth', re.I))
+        if not dob_elem:
+            dob_elem = soup.find(string=re.compile(r'Geburtstag', re.I))
+        if dob_elem:
+            parent = dob_elem.find_parent(['div', 'span', 'li'])
+            if parent:
+                text = parent.get_text()
+                # Extract date (format: DD/MM/YYYY or DD-MM-YYYY)
+                date_match = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})', text)
+                if date_match:
+                    info['date_of_birth'] = date_match.group(1)
+                    print(f"    -> Found date of birth: {info['date_of_birth']}")
+        
+        # Position - look for "Main position"
+        # First try to find dt/dd structure
+        dt_elem = soup.find('dt', string=re.compile(r'Main position', re.I))
+        if dt_elem:
+            dd_elem = dt_elem.find_next_sibling('dd')
+            if dd_elem:
+                position_text = dd_elem.get_text().strip()
+                if position_text:
+                    info['position'] = position_text
+                    print(f"    -> Found position: {info['position']}")
+        
+        # If not found, try other methods
+        if not info['position']:
+            position_elem = soup.find(string=re.compile(r'Main position', re.I))
+            if not position_elem:
+                position_elem = soup.find(string=re.compile(r'Hauptposition', re.I))
+            if position_elem:
+                parent = position_elem.find_parent(['div', 'span', 'li', 'dt'])
+                if parent:
+                    # Look for info-table__content span (common structure)
+                    content_span = parent.find_next('span', class_=re.compile(r'info-table__content', re.I))
+                    if content_span:
+                        position_text = content_span.get_text().strip()
+                        if position_text and position_text.lower() not in ['main position', 'hauptposition']:
+                            info['position'] = position_text
+                            print(f"    -> Found position: {info['position']}")
+                    else:
+                        # Look for dd element
+                        dd_elem = parent.find_next('dd')
+                        if dd_elem:
+                            position_text = dd_elem.get_text().strip()
+                            if position_text:
+                                info['position'] = position_text
+                                print(f"    -> Found position: {info['position']}")
+                        else:
+                            # Look for any span/div after
+                            next_elem = parent.find_next(['span', 'div', 'a'])
+                            if next_elem:
+                                position_text = next_elem.get_text().strip()
+                                # Clean up
+                                position_text = re.sub(r'^Main position[:\s]+', '', position_text, flags=re.I).strip()
+                                position_text = position_text.split('\n')[0].strip()
+                                if position_text and position_text.lower() not in ['main position', 'hauptposition']:
+                                    info['position'] = position_text
+                                    print(f"    -> Found position: {info['position']}")
+        
+        # Height
+        height_elem = soup.find(string=re.compile(r'Height', re.I))
+        if not height_elem:
+            height_elem = soup.find(string=re.compile(r'Größe|Grösse', re.I))
+        if height_elem:
+            parent = height_elem.find_parent(['div', 'span', 'li'])
+            if parent:
+                text = parent.get_text()
+                # Extract height (format: X,XX m or X.XX m)
+                height_match = re.search(r'([\d.,]+)\s*m', text)
+                if height_match:
+                    height_val = height_match.group(1).replace(',', '.')
+                    info['height'] = height_val + ' m'
+                    print(f"    -> Found height: {info['height']}")
+        
+        # Foot
+        foot_elem = soup.find(string=re.compile(r'Foot', re.I))
+        if not foot_elem:
+            foot_elem = soup.find(string=re.compile(r'Fuß|Fuss', re.I))
+        if foot_elem:
+            parent = foot_elem.find_parent(['div', 'span', 'li'])
+            if parent:
+                # Look for next sibling with the foot value
+                next_elem = parent.find_next(['span', 'div', 'a'])
+                if next_elem:
+                    foot_text = next_elem.get_text().strip()
+                    if foot_text and foot_text.lower() not in ['foot', 'fuß', 'fuss']:
+                        info['foot'] = foot_text
+                        print(f"    -> Found foot: {info['foot']}")
+                else:
+                    # Extract from text
+                    text = parent.get_text()
+                    foot_match = re.search(r'Foot[:\s]+([^\n]+)', text, re.I)
+                    if foot_match:
+                        foot_text = foot_match.group(1).strip()
+                        # Get first line only
+                        foot_text = foot_text.split('\n')[0].strip()
+                        info['foot'] = foot_text
+                        print(f"    -> Found foot: {info['foot']}")
+        
+        # Caps/Goals - usually together
+        caps_goals_elem = soup.find(string=re.compile(r'Caps/Goals', re.I))
+        if not caps_goals_elem:
+            caps_goals_elem = soup.find(string=re.compile(r'Länderspiele', re.I))
+        if caps_goals_elem:
+            parent = caps_goals_elem.find_parent(['div', 'span', 'li'])
+            if parent:
+                text = parent.get_text()
+                # Extract caps and goals (format: "107 / 0" or "107/0")
+                caps_goals_match = re.search(r'(\d+)\s*/\s*(\d+)', text)
+                if caps_goals_match:
+                    info['caps'] = caps_goals_match.group(1)
+                    info['goals'] = caps_goals_match.group(2)
+                    print(f"    -> Found caps: {info['caps']}, goals: {info['goals']}")
+                else:
+                    # Try to find just caps
+                    caps_match = re.search(r'(\d+)', text)
+                    if caps_match:
+                        info['caps'] = caps_match.group(1)
+                        print(f"    -> Found caps: {info['caps']}")
+        
+        # Extract Current Market Value (usually in a separate section)
+        market_value_elements = soup.find_all(string=re.compile(r'€|Market value|Marktwert', re.I))
+        for elem in market_value_elements:
+            parent = elem.find_parent(['div', 'span', 'td'])
+            if parent:
+                text = parent.get_text()
+                # Look for value like "€18.00m" or "€18,000,000"
+                value_match = re.search(r'€\s*([\d.,]+)\s*[mM]', text)
+                if value_match:
+                    info['current_market_value'] = '€' + value_match.group(1) + 'm'
+                    print(f"    -> Found market value: {info['current_market_value']}")
+                    break
+        
+        # Alternative: Look for market value in specific divs
+        if not info['current_market_value']:
+            market_value_divs = soup.find_all(['div', 'span'], class_=re.compile(r'value|marktwert', re.I))
+            for div in market_value_divs:
+                text = div.get_text()
+                value_match = re.search(r'€\s*([\d.,]+)\s*[mM]', text)
+                if value_match:
+                    info['current_market_value'] = '€' + value_match.group(1) + 'm'
+                    print(f"    -> Found market value (alternative): {info['current_market_value']}")
+                    break
+        
+        return info
+    
+    def scrape_all_players(self):
+        """
+        Main method: Scrape all players from European leagues
+        
+        Returns:
+            List of dicts with league, club, and player data
+        """
+        self.should_stop = False
+        
+        # Step 1: Get all leagues from Europa page
+        self._update_progress(0, 0, '', 'Fetching leagues list...')
+        leagues = self.scrape_leagues_from_continent('europa')
+        
+        print(f"Found {len(leagues)} leagues")
+        if not leagues:
+            self._update_progress(0, 0, '', 'No leagues found')
+            return []
+        
+        # Step 2: Get all clubs from all leagues
+        all_clubs = []
+        for league in leagues:
+            print(f"Fetching clubs from {league['name']}...")
+            clubs = self.scrape_clubs_from_league(league['url'])
+            for club in clubs:
+                club['league'] = league['name']
+                club['league_country'] = league.get('country', '')
+            all_clubs.extend(clubs)
+        
+        print(f"Found {len(all_clubs)} clubs from {len(leagues)} leagues")
+        if not all_clubs:
+            self._update_progress(0, 0, '', 'No clubs found')
+            return []
+        
+        total = len(all_clubs)
+        results = []
+        
+        # Step 3: For each club, get players and their info
+        for idx, club in enumerate(all_clubs):
+            if self.should_stop:
+                self._update_progress(idx, total, club['name'], 'stopped')
+                break
+            
+            self._update_progress(idx + 1, total, club['name'], f'Processing {club["name"]}...')
+            print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
+            
+            print(f"  -> Attempting to find players for {club['name']}...")
+            players = self.get_current_players(club['url'])
+            
+            if not players:
+                print(f"  -> No players found for {club['name']}")
+                continue
+            
+            # Process each player
+            for player in players:
+                print(f"  -> Found player: {player['name']} (ID: {player['id']})")
+                
+                # Get player profile info
+                profile_info = self.scrape_player_profile_info(player.get('profile_url', ''))
+                
+                results.append({
+                    'league': club.get('league', ''),
+                    'league_country': club.get('league_country', ''),
+                    'current_club': club['name'],
+                    'current_club_url': club['url'],
+                    'player_name': profile_info.get('player_name', player.get('name', '')),
+                    'player_id': player['id'],
+                    'jersey_number': profile_info.get('jersey_number', player.get('jersey_number', '')),
+                    'nationality': profile_info.get('nationality', ''),
+                    'date_of_birth': profile_info.get('date_of_birth', ''),
+                    'caps': profile_info.get('caps', ''),
+                    'goals': profile_info.get('goals', ''),
+                    'position': profile_info.get('position', player.get('position', '')),
+                    'height': profile_info.get('height', ''),
+                    'foot': profile_info.get('foot', ''),
+                    'current_market_value': profile_info.get('current_market_value', '')
+                })
+        
+        print(f"Total results: {len(results)}")
+        self._update_progress(total, total, '', 'completed')
+        return results

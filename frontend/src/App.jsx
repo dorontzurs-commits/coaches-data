@@ -5,6 +5,9 @@ import Select from 'react-select'
 import './index.css'
 
 function App() {
+  const [activeTab, setActiveTab] = useState('coaches') // 'coaches' or 'players'
+  
+  // Coach state
   const [status, setStatus] = useState({
     running: false,
     progress: {
@@ -15,6 +18,20 @@ function App() {
     }
   })
   const [results, setResults] = useState([])
+  
+  // Player state
+  const [playerStatus, setPlayerStatus] = useState({
+    running: false,
+    progress: {
+      current: 0,
+      total: 0,
+      current_club: '',
+      status: 'idle'
+    }
+  })
+  const [playerResults, setPlayerResults] = useState([])
+  
+  // Shared state
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const [continents] = useState([
@@ -74,9 +91,8 @@ function App() {
         setLoadingClubs(true)
         setClubs([])
         setSelectedClubs([])
-        setError(null) // Clear previous errors
+        setError(null)
         try {
-          // Fetch clubs from all selected leagues
           const allClubs = []
           const clubPromises = selectedLeagues.map(async (leagueId) => {
             const league = leagues.find(l => l.id === leagueId || l.url === leagueId)
@@ -85,7 +101,6 @@ function App() {
               const response = await axios.post(`${API_BASE}/clubs`, {
                 league_url: league.url
               })
-              // Add league info to each club
               return response.data.map(club => ({
                 ...club,
                 leagueName: league.name,
@@ -118,21 +133,38 @@ function App() {
     }
   }, [selectedLeagues, leagues])
 
-  // Poll for status updates
+  // Poll for coach status updates
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const response = await axios.get(`${API_BASE}/status`)
         setStatus(response.data)
         
-        // Update results if available
         if (response.data.results && response.data.results.length > 0) {
           setResults(response.data.results)
         }
       } catch (err) {
         console.error('Error fetching status:', err)
       }
-    }, 1000) // Poll every second
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // Poll for player status updates
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await axios.get(`${API_BASE}/player-status`)
+        setPlayerStatus(response.data)
+        
+        if (response.data.results && response.data.results.length > 0) {
+          setPlayerResults(response.data.results)
+        }
+      } catch (err) {
+        console.error('Error fetching player status:', err)
+      }
+    }, 1000)
 
     return () => clearInterval(interval)
   }, [])
@@ -141,80 +173,119 @@ function App() {
     setLoading(true)
     setError(null)
     setResults([])
-    setShowAnimation(true) // הפעל אנימציה
+    setShowAnimation(true)
     
-    // עצור את האנימציה אחרי 3 שניות
     setTimeout(() => {
       setShowAnimation(false)
     }, 3000)
     
     try {
-      // If Manager ID is provided, use manager scraper
-      if (managerId && managerId.trim() !== '') {
-        await axios.post(`${API_BASE}/start-manager`, {
-          manager_id: managerId.trim()
-        })
-        return
-      }
-      
-      // If specific clubs are selected, use multiple clubs scraper
-      if (selectedClubs.length > 0) {
-        if (selectedClubs.length === 1) {
-          // Single club - use existing endpoint
-          const club = selectedClubs[0]
-          await axios.post(`${API_BASE}/start-club`, {
-            club_url: club.url,
-            club_name: club.name
+      if (activeTab === 'coaches') {
+        // Coach scraper logic
+        if (managerId && managerId.trim() !== '') {
+          await axios.post(`${API_BASE}/start-manager`, {
+            manager_id: managerId.trim()
           })
-        } else {
-          // Multiple clubs - send array
-          await axios.post(`${API_BASE}/start-clubs`, {
-            clubs: selectedClubs.map(club => ({
-              url: club.url,
-              name: club.name
-            }))
-          })
+          return
         }
-      } else if (selectedLeagues.length > 0) {
-        // If leagues are selected (but no specific club), scrape all clubs from those leagues
-        const selectedLeagueObjects = selectedLeagues.map(leagueId => 
-          leagues.find(l => l.id === leagueId || l.url === leagueId)
-        ).filter(Boolean)
         
-        if (selectedLeagueObjects.length > 0) {
-          // If only one league selected, use the single league endpoint
-          if (selectedLeagueObjects.length === 1) {
-            const league = selectedLeagueObjects[0]
-            await axios.post(`${API_BASE}/start`, {
-              league_url: league.url,
-              league_name: league.name
+        if (selectedClubs.length > 0) {
+          if (selectedClubs.length === 1) {
+            const club = selectedClubs[0]
+            await axios.post(`${API_BASE}/start-club`, {
+              club_url: club.url,
+              club_name: club.name
             })
           } else {
-            // Multiple leagues - send array of league URLs
-            await axios.post(`${API_BASE}/start`, {
-              league_urls: selectedLeagueObjects.map(l => ({ url: l.url, name: l.name }))
+            await axios.post(`${API_BASE}/start-clubs`, {
+              clubs: selectedClubs.map(club => ({
+                url: club.url,
+                name: club.name
+              }))
             })
           }
+        } else if (selectedLeagues.length > 0) {
+          const selectedLeagueObjects = selectedLeagues.map(leagueId => 
+            leagues.find(l => l.id === leagueId || l.url === leagueId)
+          ).filter(Boolean)
+          
+          if (selectedLeagueObjects.length > 0) {
+            if (selectedLeagueObjects.length === 1) {
+              const league = selectedLeagueObjects[0]
+              await axios.post(`${API_BASE}/start`, {
+                league_url: league.url,
+                league_name: league.name
+              })
+            } else {
+              await axios.post(`${API_BASE}/start`, {
+                league_urls: selectedLeagueObjects.map(l => ({ url: l.url, name: l.name }))
+              })
+            }
+          }
+        } else if (selectedContinent) {
+          await axios.post(`${API_BASE}/start`, {
+            continent: selectedContinent
+          })
+        } else {
+          await axios.post(`${API_BASE}/start`)
         }
-      } else if (selectedContinent) {
-        // If a continent is selected (but no specific league), scrape all leagues from that continent
-        await axios.post(`${API_BASE}/start`, {
-          continent: selectedContinent
-        })
       } else {
-        // Otherwise, run full scraper on all clubs from all leagues (default: Europa)
-        await axios.post(`${API_BASE}/start`)
+        // Player scraper logic
+        if (selectedClubs.length > 0) {
+          if (selectedClubs.length === 1) {
+            const club = selectedClubs[0]
+            await axios.post(`${API_BASE}/player-start-club`, {
+              club_url: club.url,
+              club_name: club.name
+            })
+          } else {
+            await axios.post(`${API_BASE}/player-start-clubs`, {
+              clubs: selectedClubs.map(club => ({
+                url: club.url,
+                name: club.name
+              }))
+            })
+          }
+        } else if (selectedLeagues.length > 0) {
+          const selectedLeagueObjects = selectedLeagues.map(leagueId => 
+            leagues.find(l => l.id === leagueId || l.url === leagueId)
+          ).filter(Boolean)
+          
+          if (selectedLeagueObjects.length > 0) {
+            if (selectedLeagueObjects.length === 1) {
+              const league = selectedLeagueObjects[0]
+              await axios.post(`${API_BASE}/player-start`, {
+                league_url: league.url,
+                league_name: league.name
+              })
+            } else {
+              await axios.post(`${API_BASE}/player-start`, {
+                league_urls: selectedLeagueObjects.map(l => ({ url: l.url, name: l.name }))
+              })
+            }
+          }
+        } else if (selectedContinent) {
+          await axios.post(`${API_BASE}/player-start`, {
+            continent: selectedContinent
+          })
+        } else {
+          await axios.post(`${API_BASE}/player-start`)
+        }
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to start scraper')
       setLoading(false)
-      setShowAnimation(false) // עצור אנימציה במקרה של שגיאה
+      setShowAnimation(false)
     }
   }
 
   const stopScraper = async () => {
     try {
-      await axios.post(`${API_BASE}/stop`)
+      if (activeTab === 'coaches') {
+        await axios.post(`${API_BASE}/stop`)
+      } else {
+        await axios.post(`${API_BASE}/player-stop`)
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to stop scraper')
     }
@@ -222,170 +293,271 @@ function App() {
 
   const resetScraper = async () => {
     try {
-      await axios.post(`${API_BASE}/reset`)
+      if (activeTab === 'coaches') {
+        await axios.post(`${API_BASE}/reset`)
+        setResults([])
+        setStatus({
+          running: false,
+          progress: {
+            current: 0,
+            total: 0,
+            current_club: '',
+            status: 'idle'
+          }
+        })
+      } else {
+        await axios.post(`${API_BASE}/player-reset`)
+        setPlayerResults([])
+        setPlayerStatus({
+          running: false,
+          progress: {
+            current: 0,
+            total: 0,
+            current_club: '',
+            status: 'idle'
+          }
+        })
+      }
       
-      // Reset all state to default values
-      setResults([])
       setError(null)
       setLoading(false)
       setShowAnimation(false)
-      
-      // Reset all selections
       setSelectedContinent('')
       setSelectedLeagues([])
       setSelectedClubs([])
       setManagerId('')
-      
-      // Clear loaded data
       setLeagues([])
       setClubs([])
-      
-      // Reset status to default
-      setStatus({
-        running: false,
-        progress: {
-          current: 0,
-          total: 0,
-          current_club: '',
-          status: 'idle'
-        }
-      })
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to reset scraper')
     }
   }
 
   const exportToExcel = () => {
-    if (results.length === 0) {
+    const dataToExport = activeTab === 'coaches' ? results : playerResults
+    
+    if (dataToExport.length === 0) {
       alert('No results to export')
       return
     }
 
-    // Group results by league
-    const resultsByLeague = {}
-    results.forEach(row => {
-      const leagueName = row.league || 'Unknown League'
-      if (!resultsByLeague[leagueName]) {
-        resultsByLeague[leagueName] = []
-      }
-      resultsByLeague[leagueName].push(row)
-    })
+    if (activeTab === 'coaches') {
+      // Coach export logic
+      const resultsByLeague = {}
+      dataToExport.forEach(row => {
+        const leagueName = row.league || 'Unknown League'
+        if (!resultsByLeague[leagueName]) {
+          resultsByLeague[leagueName] = []
+        }
+        resultsByLeague[leagueName].push(row)
+      })
 
-    // Create a new workbook
-    const workbook = XLSX.utils.book_new()
+      const workbook = XLSX.utils.book_new()
 
-    // Create a sheet for each league
-    Object.keys(resultsByLeague).forEach(leagueName => {
-      const leagueResults = resultsByLeague[leagueName]
-      
-      // Headers (without League column)
-      const headers = [
-        'Current Club', 
-        'Manager', 'Manager ID', 'Date of Birth', 'Preferred Formation',
-        'History Club', 'Role', 
-        'Appointed Date', 'Until Date',
-        'Days in Charge',
-        'Matches', 'Wins', 'Draws', 'Losses', 'Players Used',
-        'Avg Goals For', 'Avg Goals Against', 'Points Per Match'
-      ]
-      
-      // Convert data to array format
-      const data = [
-        headers,
-        ...leagueResults.map(row => [
-          row.current_club || '',
-          row.manager || '',
-          row.manager_id || '',
-          row.date_of_birth || '',
-          row.preferred_formation || '',
-          row.history_club || '',
-          row.role || '',
-          row.appointed_date || '',
-          row.until_date || '',
-          row.days_in_charge || '',
-          row.matches || '',
-          row.wins || '',
-          row.draws || '',
-          row.losses || '',
-          row.players_used || '',
-          row.avg_goals_for || '',
-          row.avg_goals_against || '',
-          row.points_per_match || ''
-        ])
-      ]
-      
-      // Create worksheet
-      const worksheet = XLSX.utils.aoa_to_sheet(data)
-      
-      // Add worksheet to workbook with league name as sheet name
-      // Excel sheet names are limited to 31 characters and cannot contain certain characters
-      let sheetName = leagueName
-        .replace(/[\\\/\?\*\[\]:]/g, '_') // Replace invalid characters
-        .substring(0, 31) // Limit to 31 characters
-      
-      // Ensure sheet name is not empty
-      if (!sheetName) {
-        sheetName = 'Sheet'
-      }
-      
-      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
-    })
+      Object.keys(resultsByLeague).forEach(leagueName => {
+        const leagueResults = resultsByLeague[leagueName]
+        
+        const headers = [
+          'Current Club', 
+          'Manager', 'Manager ID', 'Date of Birth', 'Preferred Formation',
+          'History Club', 'Role', 
+          'Appointed Date', 'Until Date',
+          'Days in Charge',
+          'Matches', 'Wins', 'Draws', 'Losses', 'Players Used',
+          'Avg Goals For', 'Avg Goals Against', 'Points Per Match'
+        ]
+        
+        const data = [
+          headers,
+          ...leagueResults.map(row => [
+            row.current_club || '',
+            row.manager || '',
+            row.manager_id || '',
+            row.date_of_birth || '',
+            row.preferred_formation || '',
+            row.history_club || '',
+            row.role || '',
+            row.appointed_date || '',
+            row.until_date || '',
+            row.days_in_charge || '',
+            row.matches || '',
+            row.wins || '',
+            row.draws || '',
+            row.losses || '',
+            row.players_used || '',
+            row.avg_goals_for || '',
+            row.avg_goals_against || '',
+            row.points_per_match || ''
+          ])
+        ]
+        
+        const worksheet = XLSX.utils.aoa_to_sheet(data)
+        
+        let sheetName = leagueName
+          .replace(/[\\\/\?\*\[\]:]/g, '_')
+          .substring(0, 31)
+        
+        if (!sheetName) {
+          sheetName = 'Sheet'
+        }
+        
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
+      })
 
-    // Write file
-    const fileName = `coach_achievements_${new Date().toISOString().split('T')[0]}.xlsx`
-    XLSX.writeFile(workbook, fileName)
+      const fileName = `coach_achievements_${new Date().toISOString().split('T')[0]}.xlsx`
+      XLSX.writeFile(workbook, fileName)
+    } else {
+      // Player export logic
+      const resultsByLeague = {}
+      dataToExport.forEach(row => {
+        const leagueName = row.league || 'Unknown League'
+        if (!resultsByLeague[leagueName]) {
+          resultsByLeague[leagueName] = []
+        }
+        resultsByLeague[leagueName].push(row)
+      })
+
+      const workbook = XLSX.utils.book_new()
+
+      Object.keys(resultsByLeague).forEach(leagueName => {
+        const leagueResults = resultsByLeague[leagueName]
+        
+        const headers = [
+          'Current Club',
+          'Player Name', 'Player ID', 'Jersey Number', 'Nationality',
+          'Date of Birth', 'Caps', 'Goals', 'Position',
+          'Height', 'Foot', 'Current Market Value'
+        ]
+        
+        const data = [
+          headers,
+          ...leagueResults.map(row => [
+            row.current_club || '',
+            row.player_name || '',
+            row.player_id || '',
+            row.jersey_number || '',
+            row.nationality || '',
+            row.date_of_birth || '',
+            row.caps || '',
+            row.goals || '',
+            row.position || '',
+            row.height || '',
+            row.foot || '',
+            row.current_market_value || ''
+          ])
+        ]
+        
+        const worksheet = XLSX.utils.aoa_to_sheet(data)
+        
+        let sheetName = leagueName
+          .replace(/[\\\/\?\*\[\]:]/g, '_')
+          .substring(0, 31)
+        
+        if (!sheetName) {
+          sheetName = 'Sheet'
+        }
+        
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName)
+      })
+
+      const fileName = `player_data_${new Date().toISOString().split('T')[0]}.xlsx`
+      XLSX.writeFile(workbook, fileName)
+    }
   }
 
-  const progressPercentage = status.progress.total > 0 
-    ? Math.round((status.progress.current / status.progress.total) * 100) 
+  const currentStatus = activeTab === 'coaches' ? status : playerStatus
+  const currentResults = activeTab === 'coaches' ? results : playerResults
+  const progressPercentage = currentStatus.progress.total > 0 
+    ? Math.round((currentStatus.progress.current / currentStatus.progress.total) * 100) 
     : 0
 
   return (
     <div className="container">
       <div className="header">
         <div className="logo-container">
-          <img src="/logo.png" alt="Logo" className={`logo ${status.running ? 'logo-running' : ''}`} />
+          <img src="/logo.png" alt="Logo" className={`logo ${currentStatus.running ? 'logo-running' : ''}`} />
           <p>
-            {status.running ? (
+            {currentStatus.running ? (
               <span className="running-message">
                 <strong>NNNUUU...</strong> Another operation is currently running. Please wait for it to complete.
               </span>
             ) : (
               <>
-                <strong>NNNUUUU...</strong> Extract coach career history from top football clubs
+                <strong>NNNUUUU...</strong> Extract {activeTab === 'coaches' ? 'coach career history' : 'player data'} from top football clubs
               </>
             )}
           </p>
         </div>
       </div>
 
+      {/* Tabs */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '10px', 
+        marginBottom: '20px',
+        borderBottom: '2px solid #334155',
+        paddingBottom: '10px'
+      }}>
+        <button
+          onClick={() => setActiveTab('coaches')}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: activeTab === 'coaches' ? '#3b82f6' : '#1e293b',
+            color: '#e2e8f0',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+            fontWeight: activeTab === 'coaches' ? 'bold' : 'normal'
+          }}
+        >
+          Coaches
+        </button>
+        <button
+          onClick={() => setActiveTab('players')}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: activeTab === 'players' ? '#3b82f6' : '#1e293b',
+            color: '#e2e8f0',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+            fontWeight: activeTab === 'players' ? 'bold' : 'normal'
+          }}
+        >
+          Players
+        </button>
+      </div>
+
       <div className="controls">
         <div className="selection-section">
-          <div className="select-group">
-            <label htmlFor="manager-id-input">Manager ID (optional):</label>
-            <input
-              id="manager-id-input"
-              type="text"
-              value={managerId}
-              onChange={(e) => {
-                // Only allow numbers
-                const value = e.target.value.replace(/[^0-9]/g, '')
-                setManagerId(value)
-              }}
-              placeholder="Enter Manager ID (numbers only)"
-              disabled={status.running}
-              style={{
-                padding: '8px 12px',
-                fontSize: '1rem',
-                border: '1px solid #475569',
-                borderRadius: '4px',
-                backgroundColor: '#1e293b',
-                color: '#e2e8f0',
-                width: '100%',
-                boxSizing: 'border-box'
-              }}
-            />
-          </div>
+          {activeTab === 'coaches' && (
+            <div className="select-group">
+              <label htmlFor="manager-id-input">Manager ID (optional):</label>
+              <input
+                id="manager-id-input"
+                type="text"
+                value={managerId}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/[^0-9]/g, '')
+                  setManagerId(value)
+                }}
+                placeholder="Enter Manager ID (numbers only)"
+                disabled={currentStatus.running}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: '1rem',
+                  border: '1px solid #475569',
+                  borderRadius: '4px',
+                  backgroundColor: '#1e293b',
+                  color: '#e2e8f0',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+          )}
 
           <div className="select-group">
             <label htmlFor="continent-select">Select Continent:</label>
@@ -394,7 +566,7 @@ function App() {
               value={continents.find(c => c.value === selectedContinent) || null}
               onChange={(option) => setSelectedContinent(option ? option.value : '')}
               options={continents}
-              isDisabled={status.running || managerId !== ''}
+              isDisabled={currentStatus.running || (activeTab === 'coaches' && managerId !== '')}
               placeholder="-- Select a Continent --"
               isClearable
               className="react-select-container"
@@ -419,7 +591,7 @@ function App() {
                   value: league.id || league.url,
                   label: `${league.name}${league.country ? ` (${league.country})` : ''}`
                 }))}
-                isDisabled={status.running || loadingLeagues || managerId !== ''}
+                isDisabled={currentStatus.running || loadingLeagues || (activeTab === 'coaches' && managerId !== '')}
                 placeholder={loadingLeagues ? "Loading leagues..." : "-- Select League(s) --"}
                 isClearable
                 closeMenuOnSelect={false}
@@ -450,7 +622,7 @@ function App() {
                   value: club.url,
                   label: `${club.name}${club.leagueName ? ` (${club.leagueName})` : ''}`
                 }))}
-                isDisabled={status.running || loadingClubs || managerId !== ''}
+                isDisabled={currentStatus.running || loadingClubs || (activeTab === 'coaches' && managerId !== '')}
                 placeholder={loadingClubs ? "Loading clubs..." : "-- Select Club(s) --"}
                 isClearable
                 closeMenuOnSelect={false}
@@ -465,26 +637,25 @@ function App() {
           <button 
             className="btn btn-primary" 
             onClick={startScraper} 
-            disabled={status.running || loading || (managerId === '' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent)}
-            title={managerId ? `Scrape manager ID: ${managerId}` : selectedClubs.length > 0 ? `Scrape ${selectedClubs.length} selected club(s)` : selectedLeagues.length > 0 ? `Scrape all clubs from ${selectedLeagues.length} selected league(s)` : selectedContinent ? `Scrape all leagues from ${continents.find(c => c.value === selectedContinent)?.label}` : 'Select a continent, league(s), club(s) or enter Manager ID'}
+            disabled={currentStatus.running || loading || (activeTab === 'coaches' && managerId === '' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent) || (activeTab === 'players' && selectedClubs.length === 0 && selectedLeagues.length === 0 && !selectedContinent)}
           >
-            ▶ {managerId ? `Start Scraper (Manager ID: ${managerId})` : selectedClubs.length > 0 ? `Start Scraper (${selectedClubs.length} Club${selectedClubs.length > 1 ? 's' : ''})` : selectedLeagues.length > 0 ? `Start Scraper (${selectedLeagues.length} League${selectedLeagues.length > 1 ? 's' : ''})` : selectedContinent ? `Start Scraper (All Leagues - ${continents.find(c => c.value === selectedContinent)?.label})` : 'Start Scraper'}
+            ▶ Start Scraper
           </button>
           <button 
             className="btn btn-danger" 
             onClick={stopScraper} 
-            disabled={!status.running}
+            disabled={!currentStatus.running}
           >
             ⏹ Stop Scraper
           </button>
           <button 
             className="btn btn-secondary" 
             onClick={resetScraper} 
-            disabled={status.running}
+            disabled={currentStatus.running}
           >
             🔄 Reset
           </button>
-          {results.length > 0 && (
+          {currentResults.length > 0 && (
             <button 
               className="btn btn-success" 
               onClick={exportToExcel}
@@ -504,17 +675,17 @@ function App() {
       <div className="progress-section">
         <h2>Progress</h2>
         <div className="status-text">
-          <strong>Status:</strong> {status.progress.status || 'idle'}
+          <strong>Status:</strong> {currentStatus.progress.status || 'idle'}
         </div>
-        {status.progress.current_club && (
+        {currentStatus.progress.current_club && (
           <div className="status-text">
-            <strong>Current Club:</strong> {status.progress.current_club}
+            <strong>Current Club:</strong> {currentStatus.progress.current_club}
           </div>
         )}
-        {status.progress.total > 0 && (
+        {currentStatus.progress.total > 0 && (
           <>
             <div className="status-text">
-              <strong>Progress:</strong> {status.progress.current} / {status.progress.total} clubs
+              <strong>Progress:</strong> {currentStatus.progress.current} / {currentStatus.progress.total} clubs
             </div>
             <div className="progress-bar-container">
               <div 
@@ -531,74 +702,110 @@ function App() {
       <div className="results-section">
         <div className="results-header">
           <h2>Results</h2>
-          {results.length > 0 && (
+          {currentResults.length > 0 && (
             <span style={{ color: '#94a3b8', fontSize: '1rem' }}>
-              {results.length} career entr{results.length !== 1 ? 'ies' : 'y'} found
+              {currentResults.length} {activeTab === 'coaches' ? 'career entr' + (currentResults.length !== 1 ? 'ies' : 'y') : 'player' + (currentResults.length !== 1 ? 's' : '')} found
             </span>
           )}
         </div>
 
-        {status.running && results.length === 0 && (
+        {currentStatus.running && currentResults.length === 0 && (
           <div className="loading">
             <p>⏳ Scraping in progress... Please wait...</p>
           </div>
         )}
 
-        {!status.running && results.length === 0 && status.progress.status === 'idle' && (
+        {!currentStatus.running && currentResults.length === 0 && currentStatus.progress.status === 'idle' && (
           <div className="empty-state">
             <h3>No results yet</h3>
-            <p>Click "Start Scraper" to begin extracting coach career history</p>
+            <p>Click "Start Scraper" to begin extracting {activeTab === 'coaches' ? 'coach career history' : 'player data'}</p>
           </div>
         )}
 
-        {results.length > 0 && (
+        {currentResults.length > 0 && (
           <div className="table-container">
             <table>
               <thead>
-                <tr>
-                  <th>Current Club</th>
-                  <th>Manager</th>
-                  <th>Manager ID</th>
-                  <th>Date of Birth</th>
-                  <th>Preferred Formation</th>
-                  <th>History Club</th>
-                  <th>Role</th>
-                  <th>Appointed Date</th>
-                  <th>Until Date</th>
-                  <th>Days in Charge</th>
-                  <th>Matches</th>
-                  <th>Wins</th>
-                  <th>Draws</th>
-                  <th>Losses</th>
-                  <th>Players Used</th>
-                  <th>Avg Goals For</th>
-                  <th>Avg Goals Against</th>
-                  <th>Points Per Match</th>
-                </tr>
+                {activeTab === 'coaches' ? (
+                  <tr>
+                    <th>Current Club</th>
+                    <th>Manager</th>
+                    <th>Manager ID</th>
+                    <th>Date of Birth</th>
+                    <th>Preferred Formation</th>
+                    <th>History Club</th>
+                    <th>Role</th>
+                    <th>Appointed Date</th>
+                    <th>Until Date</th>
+                    <th>Days in Charge</th>
+                    <th>Matches</th>
+                    <th>Wins</th>
+                    <th>Draws</th>
+                    <th>Losses</th>
+                    <th>Players Used</th>
+                    <th>Avg Goals For</th>
+                    <th>Avg Goals Against</th>
+                    <th>Points Per Match</th>
+                  </tr>
+                ) : (
+                  <tr>
+                    <th>Current Club</th>
+                    <th>Player Name</th>
+                    <th>Player ID</th>
+                    <th>Jersey Number</th>
+                    <th>Nationality</th>
+                    <th>Date of Birth</th>
+                    <th>Caps</th>
+                    <th>Goals</th>
+                    <th>Position</th>
+                    <th>Height</th>
+                    <th>Foot</th>
+                    <th>Current Market Value</th>
+                  </tr>
+                )}
               </thead>
               <tbody>
-                {results.map((row, index) => (
-                  <tr key={index}>
-                    <td>{row.current_club}</td>
-                    <td>{row.manager}</td>
-                    <td>{row.manager_id || '-'}</td>
-                    <td>{row.date_of_birth || '-'}</td>
-                    <td>{row.preferred_formation || '-'}</td>
-                    <td>{row.history_club}</td>
-                    <td>{row.role || '-'}</td>
-                    <td>{row.appointed_date || '-'}</td>
-                    <td>{row.until_date || '-'}</td>
-                    <td>{row.days_in_charge || '-'}</td>
-                    <td>{row.matches || '-'}</td>
-                    <td>{row.wins || '-'}</td>
-                    <td>{row.draws || '-'}</td>
-                    <td>{row.losses || '-'}</td>
-                    <td>{row.players_used || '-'}</td>
-                    <td>{row.avg_goals_for || '-'}</td>
-                    <td>{row.avg_goals_against || '-'}</td>
-                    <td>{row.points_per_match || '-'}</td>
-                  </tr>
-                ))}
+                {activeTab === 'coaches' ? (
+                  currentResults.map((row, index) => (
+                    <tr key={index}>
+                      <td>{row.current_club}</td>
+                      <td>{row.manager}</td>
+                      <td>{row.manager_id || '-'}</td>
+                      <td>{row.date_of_birth || '-'}</td>
+                      <td>{row.preferred_formation || '-'}</td>
+                      <td>{row.history_club}</td>
+                      <td>{row.role || '-'}</td>
+                      <td>{row.appointed_date || '-'}</td>
+                      <td>{row.until_date || '-'}</td>
+                      <td>{row.days_in_charge || '-'}</td>
+                      <td>{row.matches || '-'}</td>
+                      <td>{row.wins || '-'}</td>
+                      <td>{row.draws || '-'}</td>
+                      <td>{row.losses || '-'}</td>
+                      <td>{row.players_used || '-'}</td>
+                      <td>{row.avg_goals_for || '-'}</td>
+                      <td>{row.avg_goals_against || '-'}</td>
+                      <td>{row.points_per_match || '-'}</td>
+                    </tr>
+                  ))
+                ) : (
+                  currentResults.map((row, index) => (
+                    <tr key={index}>
+                      <td>{row.current_club}</td>
+                      <td>{row.player_name}</td>
+                      <td>{row.player_id || '-'}</td>
+                      <td>{row.jersey_number || '-'}</td>
+                      <td>{row.nationality || '-'}</td>
+                      <td>{row.date_of_birth || '-'}</td>
+                      <td>{row.caps || '-'}</td>
+                      <td>{row.goals || '-'}</td>
+                      <td>{row.position || '-'}</td>
+                      <td>{row.height || '-'}</td>
+                      <td>{row.foot || '-'}</td>
+                      <td>{row.current_market_value || '-'}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -618,4 +825,3 @@ function App() {
 }
 
 export default App
-
