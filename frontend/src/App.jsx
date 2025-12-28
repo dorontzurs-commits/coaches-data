@@ -49,6 +49,12 @@ function App() {
   const [loadingClubs, setLoadingClubs] = useState(false)
   const [showAnimation, setShowAnimation] = useState(false)
   
+  // State for punch animation and blood effect
+  const [isPunching, setIsPunching] = useState(false)
+  const [showBlood, setShowBlood] = useState(false)
+  const [punchPosition, setPunchPosition] = useState({ x: 0, y: 0 })
+  const [showPunchCursor, setShowPunchCursor] = useState(false)
+  
   // Entity type and ID for URL-based scraping
   const [coachEntityType, setCoachEntityType] = useState('') // 'manager' or 'league'
   const [coachEntityId, setCoachEntityId] = useState('')
@@ -759,11 +765,72 @@ function App() {
     // await sendToKafka(messages)
   }
 
+  // Handler for logo click - punch animation and blood effect
+  const handleLogoClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    
+    setPunchPosition({ x, y })
+    setShowPunchCursor(true)
+    setIsPunching(true)
+    
+    setTimeout(() => {
+      setIsPunching(false)
+      setShowPunchCursor(false)
+      setShowBlood(true)
+      // Remove blood after 3 seconds
+      setTimeout(() => {
+        setShowBlood(false)
+      }, 3000)
+    }, 400) // Duration of punch animation
+  }
+
   return (
     <div className="container">
       <div className="header">
         <div className="logo-container">
-          <img src="/logo.png" alt="Logo" className={`logo ${currentStatus.running ? 'logo-running' : ''}`} />
+          <div 
+            className="logo-wrapper"
+            onClick={handleLogoClick}
+            style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+          >
+            <img 
+              src="/logo.png" 
+              alt="Logo" 
+              className={`logo ${currentStatus.running ? 'logo-running' : ''} ${isPunching ? 'logo-punching' : ''} ${showBlood ? 'logo-blood' : ''}`} 
+            />
+            {showPunchCursor && (
+              <img 
+                src="/Punch.png" 
+                alt="Punch" 
+                className="punch-cursor"
+                style={{
+                  position: 'absolute',
+                  left: `${punchPosition.x}px`,
+                  top: `${punchPosition.y}px`,
+                  width: '30px',
+                  height: '30px',
+                  pointerEvents: 'none',
+                  zIndex: 20
+                }}
+              />
+            )}
+            {showBlood && (
+              <div className="blood-overlay">
+                <div className="blood-drop blood-drop-1"></div>
+                <div className="blood-drop blood-drop-2"></div>
+                <div className="blood-drop blood-drop-3"></div>
+                <div className="blood-drop blood-drop-4"></div>
+                <div className="blood-drop blood-drop-5"></div>
+                <div className="blood-drop blood-drop-6"></div>
+                <div className="blood-splash"></div>
+                <div className="blood-stain blood-stain-1"></div>
+                <div className="blood-stain blood-stain-2"></div>
+                <div className="blood-stain blood-stain-3"></div>
+              </div>
+            )}
+          </div>
           <p>
             {currentStatus.running ? (
               <span className="running-message">
