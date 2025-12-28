@@ -169,6 +169,11 @@ function App() {
         const response = await axios.get(`${API_BASE}/player-status`)
         setPlayerStatus(response.data)
         
+        // Debug: log skipped clubs if they exist
+        if (response.data.skipped_clubs && response.data.skipped_clubs.length > 0) {
+          console.log('Skipped clubs detected:', response.data.skipped_clubs)
+        }
+        
         if (response.data.results && response.data.results.length > 0) {
           setPlayerResults(response.data.results)
         }
@@ -511,20 +516,20 @@ function App() {
       const fileName = `coach_achievements_${new Date().toISOString().split('T')[0]}.xlsx`
       XLSX.writeFile(workbook, fileName)
     } else {
-      // Player export logic
-      const resultsByLeague = {}
+      // Player export logic - Group by club instead of league
+      const resultsByClub = {}
       dataToExport.forEach(row => {
-        const leagueName = row.league || 'Unknown League'
-        if (!resultsByLeague[leagueName]) {
-          resultsByLeague[leagueName] = []
+        const clubName = row.current_club || 'Unknown Club'
+        if (!resultsByClub[clubName]) {
+          resultsByClub[clubName] = []
         }
-        resultsByLeague[leagueName].push(row)
+        resultsByClub[clubName].push(row)
       })
 
       const workbook = XLSX.utils.book_new()
 
-      Object.keys(resultsByLeague).forEach(leagueName => {
-        const leagueResults = resultsByLeague[leagueName]
+      Object.keys(resultsByClub).forEach(clubName => {
+        const clubResults = resultsByClub[clubName]
         
         const headers = [
           'Current Club',
@@ -535,7 +540,7 @@ function App() {
         
         const data = [
           headers,
-          ...leagueResults.map(row => [
+          ...clubResults.map(row => [
             row.current_club || '',
             row.player_name || '',
             row.player_id || '',
@@ -553,7 +558,7 @@ function App() {
         
         const worksheet = XLSX.utils.aoa_to_sheet(data)
         
-        let sheetName = leagueName
+        let sheetName = clubName
           .replace(/[\\\/\?\*\[\]:]/g, '_')
           .substring(0, 31)
         
@@ -964,16 +969,54 @@ function App() {
             <div className="status-text">
               <strong>Progress:</strong> {currentStatus.progress.current} / {currentStatus.progress.total} clubs
             </div>
-            <div className="progress-bar-container">
-              <div 
-                className="progress-bar" 
-                style={{ width: `${progressPercentage}%` }}
-              >
-                {progressPercentage}%
+            <div className="progress-wrapper">
+              <div className="progress-percentage">{progressPercentage}%</div>
+              <div className="progress-bar-container">
+                <div 
+                  className="progress-bar" 
+                  style={{ width: `${progressPercentage}%` }}
+                >
+                </div>
               </div>
             </div>
           </>
         )}
+        {activeTab === 'players' && (() => {
+          const skippedClubs = currentStatus.skipped_clubs || []
+          // Debug logging
+          if (skippedClubs.length > 0) {
+            console.log('Skipped clubs in UI:', skippedClubs)
+          }
+          if (Array.isArray(skippedClubs) && skippedClubs.length > 0) {
+            return (
+              <div style={{ 
+                marginTop: '15px', 
+                padding: '15px', 
+                backgroundColor: '#7f1d1d', 
+                borderRadius: '8px',
+                border: '2px solid #991b1b',
+                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
+              }}>
+                <strong style={{ color: '#fca5a5', display: 'block', marginBottom: '10px', fontSize: '1.1rem' }}>
+                  ⚠️ Skipped Clubs ({skippedClubs.length}):
+                </strong>
+                <ul style={{ margin: '0', paddingLeft: '20px', color: '#fca5a5', listStyleType: 'disc' }}>
+                  {skippedClubs.map((club, idx) => (
+                    <li key={idx} style={{ marginBottom: '8px', fontSize: '0.95rem' }}>
+                      <strong style={{ color: '#fca5a5', fontWeight: '600' }}>{club.name || 'Unknown Club'}</strong>
+                      {club.error && (
+                        <span style={{ fontSize: '0.9em', opacity: 0.9, marginLeft: '8px', color: '#fca5a5' }}>
+                          - {club.error}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          }
+          return null
+        })()}
       </div>
 
       <div className="results-section">

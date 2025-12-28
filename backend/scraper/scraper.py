@@ -319,12 +319,14 @@ class TransfermarktScraper:
                             break
                 
                 if club_link:
-                    club_name = club_link.text.strip()
-                    if not club_name:
+                    club_name_raw = club_link.text.strip()
+                    if not club_name_raw:
                         # Try getting text from the cell
-                        club_name = club_link.find_parent('td').get_text().strip() if club_link.find_parent('td') else ''
+                        club_name_raw = club_link.find_parent('td').get_text().strip() if club_link.find_parent('td') else ''
                     
-                    if club_name:
+                    if club_name_raw:
+                        # Make sure club name is safe for encoding
+                        club_name = safe_str(club_name_raw)
                         club_url = urljoin(self.base_url, club_link['href'])
                         
                         # Normalize URL - remove season parameter
@@ -350,7 +352,7 @@ class TransfermarktScraper:
                                 'name': club_name,
                                 'url': club_url
                             })
-                            print(f"  -> Added club: {club_name} ({club_url})")
+                            print(f"  -> Added club: {safe_str(club_name)} ({club_url})")
         else:
             print("No table found on league page")
         
@@ -1379,8 +1381,8 @@ class TransfermarktScraper:
             print(f"Fetching clubs from {safe_str(league['name'])}...")
             clubs = self.scrape_clubs_from_league(league['url'])
             for club in clubs:
-                club['league'] = league['name']
-                club['league_country'] = league.get('country', '')
+                club['league'] = safe_str(league['name'])
+                club['league_country'] = safe_str(league.get('country', ''))
             all_clubs.extend(clubs)
         
         print(f"Found {len(all_clubs)} clubs from {len(leagues)} leagues")
@@ -1394,10 +1396,10 @@ class TransfermarktScraper:
         # Step 3: For each club, get managers (including Caretaker) and career history
         for idx, club in enumerate(all_clubs):
             if self.should_stop:
-                self._update_progress(idx, total, club['name'], 'stopped')
+                self._update_progress(idx, total, safe_str(club['name']), 'stopped')
                 break
             
-            self._update_progress(idx + 1, total, club['name'], f'Processing {club["name"]}...')
+            self._update_progress(idx + 1, total, safe_str(club['name']), f'Processing {safe_str(club["name"])}...')
             print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
             
             # Get current managers (including Caretaker Manager)
@@ -1428,35 +1430,35 @@ class TransfermarktScraper:
                         continue
                     
                     results.append({
-                        'league': club.get('league', ''),
-                        'league_country': club.get('league_country', ''),
-                        'current_club': club['name'],
+                        'league': safe_str(club.get('league', '')),
+                        'league_country': safe_str(club.get('league_country', '')),
+                        'current_club': safe_str(club['name']),
                         'current_club_url': club['url'],
-                        'manager': manager['name'],
+                        'manager': safe_str(manager['name']),
                         'manager_id': manager['id'],
-                        'manager_role': manager.get('role', 'Manager'),  # Manager or Caretaker Manager
+                        'manager_role': safe_str(manager.get('role', 'Manager')),  # Manager or Caretaker Manager
                         'date_of_birth': profile_info.get('date_of_birth', ''),
                         'preferred_formation': profile_info.get('preferred_formation', ''),
-                        'history_club': entry.get('club', ''),
+                        'history_club': safe_str(entry.get('club', '')),
                         'history_club_url': entry.get('club_url', ''),
-                        'role': entry.get('role', ''),
-                        'appointed_season': entry.get('appointed_season', ''),
-                        'appointed_date': entry.get('appointed_date', ''),
-                        'until_season': entry.get('until_season', ''),
-                        'until_date': entry.get('until_date', ''),
-                        'period_from': entry.get('period_from', ''),
-                        'period_until': entry.get('period_until', ''),
-                        'days_in_charge': entry.get('days_in_charge', ''),
-                        'matches': entry.get('matches', ''),
-                        'wins': entry.get('wins', ''),
-                        'draws': entry.get('draws', ''),
-                        'losses': entry.get('losses', ''),
-                        'players_used': entry.get('players_used', ''),
-                        'avg_goals_for': entry.get('avg_goals_for', ''),
-                        'avg_goals_against': entry.get('avg_goals_against', ''),
-                        'points_per_match': entry.get('points_per_match', '')
+                        'role': safe_str(entry.get('role', '')),
+                        'appointed_season': safe_str(entry.get('appointed_season', '')),
+                        'appointed_date': safe_str(entry.get('appointed_date', '')),
+                        'until_season': safe_str(entry.get('until_season', '')),
+                        'until_date': safe_str(entry.get('until_date', '')),
+                        'period_from': safe_str(entry.get('period_from', '')),
+                        'period_until': safe_str(entry.get('period_until', '')),
+                        'days_in_charge': safe_str(entry.get('days_in_charge', '')),
+                        'matches': safe_str(entry.get('matches', '')),
+                        'wins': safe_str(entry.get('wins', '')),
+                        'draws': safe_str(entry.get('draws', '')),
+                        'losses': safe_str(entry.get('losses', '')),
+                        'players_used': safe_str(entry.get('players_used', '')),
+                        'avg_goals_for': safe_str(entry.get('avg_goals_for', '')),
+                        'avg_goals_against': safe_str(entry.get('avg_goals_against', '')),
+                        'points_per_match': safe_str(entry.get('points_per_match', ''))
                     })
-                    print(f"    - {entry.get('club', '')}: {entry.get('appointed_date', '')} to {entry.get('until_date', '')}")
+                    print(f"    - {safe_str(entry.get('club', ''))}: {safe_str(entry.get('appointed_date', ''))} to {safe_str(entry.get('until_date', ''))}")
         
         print(f"Total results: {len(results)}")
         self._update_progress(total, total, '', 'completed')
@@ -1472,12 +1474,12 @@ class TransfermarktScraper:
         Returns:
             List of dicts with 'name', 'profile_url', 'id', and 'position'
         """
-        print(f"  -> get_current_players called with URL: {club_url}")
+        print(f"  -> get_current_players called with URL: {safe_str(club_url)}")
         
         # Extract club ID and slug from URL
         club_id_match = re.search(r'/verein/(\d+)', club_url)
         if not club_id_match:
-            print(f"  -> ERROR: Could not extract club ID from URL: {club_url}")
+            print(f"  -> ERROR: Could not extract club ID from URL: {safe_str(club_url)}")
             return []
         
         club_id = club_id_match.group(1)
@@ -1490,7 +1492,7 @@ class TransfermarktScraper:
             slug_match = re.search(r'/([^/]+)/verein/', club_url)
         
         club_slug = slug_match.group(1) if slug_match else ''
-        print(f"  -> Extracted club slug: {club_slug if club_slug else 'N/A'}")
+        print(f"  -> Extracted club slug: {safe_str(club_slug) if club_slug else 'N/A'}")
         
         players = []
         
@@ -1500,8 +1502,9 @@ class TransfermarktScraper:
             squad_urls.append(f'{self.base_url}/{club_slug}/kader/verein/{club_id}')
         squad_urls.append(f'{self.base_url}/kader/verein/{club_id}')
         
+        failed_urls = []
         for squad_url in squad_urls:
-            print(f"  -> Trying squad page: {squad_url}")
+            print(f"  -> Trying squad page: {safe_str(squad_url)}")
             squad_soup = self._get_page(squad_url)
             if squad_soup:
                 print(f"  -> Successfully loaded squad page")
@@ -1586,15 +1589,25 @@ class TransfermarktScraper:
                             'id': player_id,
                             'position': position
                         })
-                        print(f"  -> Found player: {player_name} (ID: {player_id}, Jersey: {jersey_number if jersey_number else 'N/A'})")
+                        print(f"  -> Found player: {safe_str(player_name)} (ID: {player_id}, Jersey: {jersey_number if jersey_number else 'N/A'})")
                 
                 if players:
-                    print(f"  -> Successfully found {len(players)} players from {squad_url}")
+                    print(f"  -> Successfully found {len(players)} players from {safe_str(squad_url)}")
                     return players
                 else:
-                    print(f"  -> No players found on {squad_url}")
+                    print(f"  -> No players found on {safe_str(squad_url)} (page loaded but no players)")
+                    # Page loaded successfully but no players found - this is OK, return empty list
+                    return []
             else:
-                print(f"  -> Failed to load squad page: {squad_url}")
+                print(f"  -> Failed to load squad page: {safe_str(squad_url)}")
+                failed_urls.append(squad_url)
+        
+        # If all URLs failed to load, raise an exception
+        if len(failed_urls) == len(squad_urls) and len(squad_urls) > 0:
+            safe_failed_urls = [safe_str(url) for url in failed_urls]
+            error_msg = f"Failed to load any squad page for club. Tried {len(squad_urls)} URL(s): {', '.join(safe_failed_urls)}"
+            print(f"  -> ERROR: {safe_str(error_msg)}")
+            raise Exception(error_msg)
         
         print(f"  -> Returning {len(players)} players total")
         return players
@@ -1681,7 +1694,7 @@ class TransfermarktScraper:
                                 info['player_name'] = safe_str(jersey_match.group(2).strip())
                             else:
                                 info['player_name'] = safe_str(name_text)
-                        print(f"    -> Found player name: {info['player_name']}")
+                        print(f"    -> Found player name: {safe_str(info['player_name'])}")
                         break
                 except Exception as e:
                     print(f"    -> Error extracting player name: {safe_str(str(e))}")
@@ -1699,7 +1712,7 @@ class TransfermarktScraper:
                 flag_img = parent.find('img', alt=True)
                 if flag_img:
                     info['nationality'] = flag_img.get('alt', '').strip()
-                    print(f"    -> Found nationality: {info['nationality']}")
+                    print(f"    -> Found nationality: {safe_str(info['nationality'])}")
                 else:
                     # Extract text after "Citizenship:"
                     text = parent.get_text()
@@ -1707,7 +1720,7 @@ class TransfermarktScraper:
                     country_match = re.search(r'Citizenship:\s*([^\n]+)', text, re.I)
                     if country_match:
                         info['nationality'] = country_match.group(1).strip()
-                        print(f"    -> Found nationality: {info['nationality']}")
+                        print(f"    -> Found nationality: {safe_str(info['nationality'])}")
         
         # Date of Birth
         dob_elem = soup.find(string=re.compile(r'Date of birth', re.I))
@@ -1721,7 +1734,7 @@ class TransfermarktScraper:
                 date_match = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})', text)
                 if date_match:
                     info['date_of_birth'] = date_match.group(1)
-                    print(f"    -> Found date of birth: {info['date_of_birth']}")
+                    print(f"    -> Found date of birth: {safe_str(info['date_of_birth'])}")
         
         # Position - look for "Main position"
         # First try to find dt/dd structure
@@ -1732,7 +1745,7 @@ class TransfermarktScraper:
                 position_text = dd_elem.get_text().strip()
                 if position_text:
                     info['position'] = position_text
-                    print(f"    -> Found position: {info['position']}")
+                    print(f"    -> Found position: {safe_str(info['position'])}")
         
         # If not found, try other methods
         if not info['position']:
@@ -1748,7 +1761,7 @@ class TransfermarktScraper:
                         position_text = content_span.get_text().strip()
                         if position_text and position_text.lower() not in ['main position', 'hauptposition']:
                             info['position'] = position_text
-                            print(f"    -> Found position: {info['position']}")
+                            print(f"    -> Found position: {safe_str(info['position'])}")
                     else:
                         # Look for dd element
                         dd_elem = parent.find_next('dd')
@@ -1756,7 +1769,7 @@ class TransfermarktScraper:
                             position_text = dd_elem.get_text().strip()
                             if position_text:
                                 info['position'] = position_text
-                                print(f"    -> Found position: {info['position']}")
+                                print(f"    -> Found position: {safe_str(info['position'])}")
                         else:
                             # Look for any span/div after
                             next_elem = parent.find_next(['span', 'div', 'a'])
@@ -1767,7 +1780,7 @@ class TransfermarktScraper:
                                 position_text = position_text.split('\n')[0].strip()
                                 if position_text and position_text.lower() not in ['main position', 'hauptposition']:
                                     info['position'] = position_text
-                                    print(f"    -> Found position: {info['position']}")
+                                    print(f"    -> Found position: {safe_str(info['position'])}")
         
         # Height
         height_elem = soup.find(string=re.compile(r'Height', re.I))
@@ -1782,7 +1795,7 @@ class TransfermarktScraper:
                 if height_match:
                     height_val = height_match.group(1).replace(',', '.')
                     info['height'] = height_val + ' m'
-                    print(f"    -> Found height: {info['height']}")
+                    print(f"    -> Found height: {safe_str(info['height'])}")
         
         # Foot
         foot_elem = soup.find(string=re.compile(r'Foot', re.I))
@@ -1797,7 +1810,7 @@ class TransfermarktScraper:
                     foot_text = next_elem.get_text().strip()
                     if foot_text and foot_text.lower() not in ['foot', 'fuß', 'fuss']:
                         info['foot'] = foot_text
-                        print(f"    -> Found foot: {info['foot']}")
+                        print(f"    -> Found foot: {safe_str(info['foot'])}")
                 else:
                     # Extract from text
                     text = parent.get_text()
@@ -1807,7 +1820,7 @@ class TransfermarktScraper:
                         # Get first line only
                         foot_text = foot_text.split('\n')[0].strip()
                         info['foot'] = foot_text
-                        print(f"    -> Found foot: {info['foot']}")
+                        print(f"    -> Found foot: {safe_str(info['foot'])}")
         
         # Caps/Goals - usually together
         caps_goals_elem = soup.find(string=re.compile(r'Caps/Goals', re.I))
@@ -1822,13 +1835,13 @@ class TransfermarktScraper:
                 if caps_goals_match:
                     info['caps'] = caps_goals_match.group(1)
                     info['goals'] = caps_goals_match.group(2)
-                    print(f"    -> Found caps: {info['caps']}, goals: {info['goals']}")
+                    print(f"    -> Found caps: {safe_str(info['caps'])}, goals: {safe_str(info['goals'])}")
                 else:
                     # Try to find just caps
                     caps_match = re.search(r'(\d+)', text)
                     if caps_match:
                         info['caps'] = caps_match.group(1)
-                        print(f"    -> Found caps: {info['caps']}")
+                        print(f"    -> Found caps: {safe_str(info['caps'])}")
         
         # Extract Current Market Value (usually in a separate section)
         market_value_elements = soup.find_all(string=re.compile(r'€|Market value|Marktwert', re.I))
@@ -1840,7 +1853,7 @@ class TransfermarktScraper:
                 value_match = re.search(r'€\s*([\d.,]+)\s*[mM]', text)
                 if value_match:
                     info['current_market_value'] = '€' + value_match.group(1) + 'm'
-                    print(f"    -> Found market value: {info['current_market_value']}")
+                    print(f"    -> Found market value: {safe_str(info['current_market_value'])}")
                     break
         
         # Alternative: Look for market value in specific divs
@@ -1852,7 +1865,7 @@ class TransfermarktScraper:
                     value_match = re.search(r'€\s*([\d.,]+)\s*[mM]', text)
                     if value_match:
                         info['current_market_value'] = '€' + value_match.group(1) + 'm'
-                        print(f"    -> Found market value (alternative): {info['current_market_value']}")
+                        print(f"    -> Found market value (alternative): {safe_str(info['current_market_value'])}")
                         break
                 except Exception as e:
                     print(f"    -> Error extracting market value: {safe_str(str(e))}")
@@ -1892,8 +1905,8 @@ class TransfermarktScraper:
             print(f"Fetching clubs from {safe_str(league['name'])}...")
             clubs = self.scrape_clubs_from_league(league['url'])
             for club in clubs:
-                club['league'] = league['name']
-                club['league_country'] = league.get('country', '')
+                club['league'] = safe_str(league['name'])
+                club['league_country'] = safe_str(league.get('country', ''))
             all_clubs.extend(clubs)
         
         print(f"Found {len(all_clubs)} clubs from {len(leagues)} leagues")
@@ -1907,43 +1920,85 @@ class TransfermarktScraper:
         # Step 3: For each club, get players and their info
         for idx, club in enumerate(all_clubs):
             if self.should_stop:
-                self._update_progress(idx, total, club['name'], 'stopped')
+                self._update_progress(idx, total, safe_str(club['name']), 'stopped')
                 break
             
-            self._update_progress(idx + 1, total, club['name'], f'Processing {club["name"]}...')
-            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
-            
-            print(f"  -> Attempting to find players for {safe_str(club['name'])}...")
-            players = self.get_current_players(club['url'])
-            
-            if not players:
-                print(f"  -> No players found for {safe_str(club['name'])}")
+            try:
+                self._update_progress(idx + 1, total, safe_str(club['name']), f'Processing {safe_str(club["name"])}...')
+                print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
+                
+                print(f"  -> Attempting to find players for {safe_str(club['name'])}...")
+                players = self.get_current_players(club['url'])
+                
+                if not players:
+                    print(f"  -> No players found for {safe_str(club['name'])}")
+                    continue
+                
+                # Process each player
+                for player in players:
+                    print(f"  -> Found player: {safe_str(player['name'])} (ID: {player['id']})")
+                    
+                    # Get player profile info
+                    profile_info = self.scrape_player_profile_info(player.get('profile_url', ''))
+                    
+                    try:
+                        # Safely convert all values - even though profile_info already went through safe_str,
+                        # we need to ensure all values are safe before appending
+                        result_item = {
+                        'league': safe_str(club.get('league', '')),
+                        'league_country': safe_str(club.get('league_country', '')),
+                        'current_club': safe_str(club['name']),
+                        'current_club_url': club['url'],
+                        'player_name': safe_str(profile_info.get('player_name', player.get('name', ''))),
+                        'player_id': player['id'],
+                        'jersey_number': safe_str(profile_info.get('jersey_number', player.get('jersey_number', ''))),
+                        'nationality': safe_str(profile_info.get('nationality', '')),
+                        'date_of_birth': safe_str(profile_info.get('date_of_birth', '')),
+                        'caps': safe_str(profile_info.get('caps', '')),
+                        'goals': safe_str(profile_info.get('goals', '')),
+                        'position': safe_str(profile_info.get('position', player.get('position', ''))),
+                        'height': safe_str(profile_info.get('height', '')),
+                        'foot': safe_str(profile_info.get('foot', '')),
+                        'current_market_value': safe_str(profile_info.get('current_market_value', ''))
+                        }
+                        results.append(result_item)
+                    except Exception as e:
+                        import traceback
+                        print(f"[ERROR] Failed to append result in scrape_all_players: {e}")
+                        print(f"[ERROR] player: {repr(player)}")
+                        print(f"[ERROR] profile_info: {repr(profile_info)}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Try to append with minimal safe data
+                        try:
+                            results.append({
+                                'league': safe_str(club.get('league', '')),
+                                'league_country': safe_str(club.get('league_country', '')),
+                                'current_club': safe_str(club['name']),
+                                'current_club_url': club['url'],
+                                'player_name': '',
+                                'player_id': player.get('id', ''),
+                                'jersey_number': '',
+                                'nationality': '',
+                                'date_of_birth': '',
+                                'caps': '',
+                                'goals': '',
+                                'position': '',
+                                'height': '',
+                                'foot': '',
+                                'current_market_value': ''
+                            })
+                        except:
+                            print("[ERROR] Even minimal result append failed")
+                            pass
+            except Exception as club_error:
+                import traceback
+                error_msg = safe_str(str(club_error))
+                print(f"[ERROR] Failed to process club {safe_str(club.get('name', 'Unknown'))}: {error_msg}")
+                traceback_str = safe_str(traceback.format_exc())
+                print(traceback_str)
+                # Continue to next club
                 continue
-            
-            # Process each player
-            for player in players:
-                print(f"  -> Found player: {safe_str(player['name'])} (ID: {player['id']})")
-                
-                # Get player profile info
-                profile_info = self.scrape_player_profile_info(player.get('profile_url', ''))
-                
-                results.append({
-                    'league': club.get('league', ''),
-                    'league_country': club.get('league_country', ''),
-                    'current_club': club['name'],
-                    'current_club_url': club['url'],
-                    'player_name': profile_info.get('player_name', player.get('name', '')),
-                    'player_id': player['id'],
-                    'jersey_number': profile_info.get('jersey_number', player.get('jersey_number', '')),
-                    'nationality': profile_info.get('nationality', ''),
-                    'date_of_birth': profile_info.get('date_of_birth', ''),
-                    'caps': profile_info.get('caps', ''),
-                    'goals': profile_info.get('goals', ''),
-                    'position': profile_info.get('position', player.get('position', '')),
-                    'height': profile_info.get('height', ''),
-                    'foot': profile_info.get('foot', ''),
-                    'current_market_value': profile_info.get('current_market_value', '')
-                })
         
         print(f"Total results: {len(results)}")
         self._update_progress(total, total, '', 'completed')

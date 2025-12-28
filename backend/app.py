@@ -69,7 +69,8 @@ player_scraper_state = {
         'current_club': '',
         'status': 'idle'
     },
-    'results': []
+    'results': [],
+    'skipped_clubs': []
 }
 
 @app.route('/api/status', methods=['GET'])
@@ -576,8 +577,8 @@ def run_multiple_leagues_scraper(league_urls):
                 
                 for entry in career_history:
                     results.append({
-                        'league': club.get('league', ''),
-                        'league_country': club.get('league_country', ''),
+                        'league': safe_str(club.get('league', '')),
+                        'league_country': safe_str(club.get('league_country', '')),
                         'current_club': safe_str(club['name']),
                         'current_club_url': club['url'],
                         'manager': safe_str(manager['name']),
@@ -708,8 +709,8 @@ def run_continent_scraper(continent):
                 
                 for entry in career_history:
                     results.append({
-                        'league': club.get('league', ''),
-                        'league_country': club.get('league_country', ''),
+                        'league': safe_str(club.get('league', '')),
+                        'league_country': safe_str(club.get('league_country', '')),
                         'current_club': safe_str(club['name']),
                         'current_club_url': club['url'],
                         'manager': safe_str(manager['name']),
@@ -884,9 +885,9 @@ def run_multiple_clubs_scraper(clubs):
                 # Add to results
                 for entry in career_history:
                     results.append({
-                        'league': league,
-                        'league_country': league_country,
-                        'current_club': club_name,
+                        'league': safe_str(league),
+                        'league_country': safe_str(league_country),
+                        'current_club': safe_str(club_name),
                         'current_club_url': club_url,
                         'manager': manager['name'],
                         'manager_id': manager['id'],
@@ -995,7 +996,21 @@ def start_league_by_id_scraper():
 def get_player_status():
     """Get current player scraper status and progress"""
     try:
-        return jsonify(player_scraper_state)
+        status_copy = player_scraper_state.copy()
+        # Ensure skipped_clubs always exists and is safe_str
+        if 'skipped_clubs' not in status_copy:
+            status_copy['skipped_clubs'] = []
+        safe_skipped_clubs = []
+        for skipped_club in status_copy.get('skipped_clubs', []):
+            safe_skipped_clubs.append({
+                'name': safe_str(skipped_club.get('name', '')),
+                'url': skipped_club.get('url', ''),
+                'error': safe_str(skipped_club.get('error', ''))
+            })
+        status_copy['skipped_clubs'] = safe_skipped_clubs
+        if len(safe_skipped_clubs) > 0:
+            print(f"[LOG] get_player_status: Returning {len(safe_skipped_clubs)} skipped clubs")
+        return jsonify(status_copy)
     except Exception as e:
         import traceback
         print(f"Error in get_player_status: {e}")
@@ -1020,6 +1035,7 @@ def start_player_scraper():
         player_scraper_state['running'] = True
         player_scraper_state['progress']['status'] = 'starting'
         player_scraper_state['results'] = []
+        player_scraper_state['skipped_clubs'] = []
         
         player_scraper_instance = TransfermarktScraper(callback=update_player_progress)
         
@@ -1062,7 +1078,29 @@ def stop_player_scraper():
 @app.route('/api/player-results', methods=['GET'])
 def get_player_results():
     """Get player scraper results"""
-    return jsonify(player_scraper_state['results'])
+    try:
+        # Ensure all results are safe before jsonify
+        safe_results = []
+        for result in player_scraper_state.get('results', []):
+            try:
+                safe_result = {}
+                for key, value in result.items():
+                    if isinstance(value, str):
+                        safe_result[key] = safe_str(value)
+                    else:
+                        safe_result[key] = value
+                safe_results.append(safe_result)
+            except Exception as e:
+                import traceback
+                print(f"[ERROR] Failed to convert result in get_player_results: {e}")
+                print(traceback.format_exc())
+                continue
+        return jsonify(safe_results)
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Error in get_player_results: {e}")
+        print(traceback.format_exc())
+        return jsonify({'error': safe_str(str(e))}), 500
 
 @app.route('/api/player-reset', methods=['POST'])
 def reset_player_scraper():
@@ -1080,7 +1118,8 @@ def reset_player_scraper():
             'current_club': '',
             'status': 'idle'
         },
-        'results': []
+        'results': [],
+        'skipped_clubs': []
     }
     
     return jsonify({'message': 'Player scraper reset'})
@@ -1115,6 +1154,7 @@ def start_player_club_scraper():
         player_scraper_state['running'] = True
         player_scraper_state['progress']['status'] = 'starting'
         player_scraper_state['results'] = []
+        player_scraper_state['skipped_clubs'] = []
         
         player_scraper_instance = TransfermarktScraper(callback=update_player_progress)
         
@@ -1148,6 +1188,7 @@ def start_player_clubs_scraper():
         player_scraper_state['running'] = True
         player_scraper_state['progress']['status'] = 'starting'
         player_scraper_state['results'] = []
+        player_scraper_state['skipped_clubs'] = []
         
         player_scraper_instance = TransfermarktScraper(callback=update_player_progress)
         
@@ -1185,6 +1226,7 @@ def start_player_league_by_id_scraper():
         player_scraper_state['running'] = True
         player_scraper_state['progress']['status'] = 'starting'
         player_scraper_state['results'] = []
+        player_scraper_state['skipped_clubs'] = []
         
         player_scraper_instance = TransfermarktScraper(callback=update_player_progress)
         
@@ -1224,6 +1266,7 @@ def start_player_club_by_id_scraper():
         player_scraper_state['running'] = True
         player_scraper_state['progress']['status'] = 'starting'
         player_scraper_state['results'] = []
+        player_scraper_state['skipped_clubs'] = []
         
         player_scraper_instance = TransfermarktScraper(callback=update_player_progress)
         
@@ -1241,12 +1284,31 @@ def start_player_club_by_id_scraper():
 
 def update_player_progress(current, total, current_club, status):
     """Callback to update player scraper progress"""
-    player_scraper_state['progress'] = {
-        'current': current,
-        'total': total,
-        'current_club': current_club,
-        'status': status
-    }
+    try:
+        safe_club = safe_str(current_club) if current_club else ''
+        safe_status = safe_str(status) if status else ''
+        player_scraper_state['progress'] = {
+            'current': current,
+            'total': total,
+            'current_club': safe_club,
+            'status': safe_status
+        }
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] update_player_progress failed: {e}")
+        print(f"[ERROR] current_club type: {type(current_club)}, value: {repr(current_club)}")
+        print(f"[ERROR] status type: {type(status)}, value: {repr(status)}")
+        print(traceback.format_exc())
+        # Fallback to safe values
+        try:
+            player_scraper_state['progress'] = {
+                'current': current,
+                'total': total,
+                'current_club': '',
+                'status': 'error in progress update'
+            }
+        except:
+            pass
 
 def run_player_scraper():
     """Run the player scraper in a separate thread"""
@@ -1255,17 +1317,52 @@ def run_player_scraper():
     try:
         print("Starting player scraper...")
         results = player_scraper_instance.scrape_all_players()
-        print(f"Player scraper finished with {len(results)} results")
-        player_scraper_state['results'] = results
+        try:
+            print(f"Player scraper finished with {len(results)} results")
+        except Exception as e:
+            print(f"[ERROR] Failed to print completion message: {e}")
+        
+        try:
+            # Ensure all results are safe before storing
+            safe_results = []
+            for result in results:
+                try:
+                    safe_result = {}
+                    for key, value in result.items():
+                        if isinstance(value, str):
+                            safe_result[key] = safe_str(value)
+                        else:
+                            safe_result[key] = value
+                    safe_results.append(safe_result)
+                except Exception as e:
+                    print(f"[ERROR] Failed to convert result item: {e}")
+                    import traceback
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    continue
+            player_scraper_state['results'] = safe_results
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to store results: {e}")
+            traceback_str = safe_str(traceback.format_exc())
+            print(traceback_str)
+            # Try to store empty results
+            try:
+                player_scraper_state['results'] = []
+            except:
+                pass
+        
         if player_scraper_instance.should_stop:
             player_scraper_state['progress']['status'] = 'stopped'
         else:
             player_scraper_state['progress']['status'] = 'completed'
     except Exception as e:
         import traceback
-        print(f"Error in player scraper: {str(e)}")
-        print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
+        error_msg = safe_str(str(e))
+        print(f"Error in player scraper: {error_msg}")
+        traceback_str = safe_str(traceback.format_exc())
+        print(traceback_str)
+        player_scraper_state['progress']['status'] = f'error: {error_msg}'
     finally:
         player_scraper_state['running'] = False
         print("Player scraper finished")
@@ -1300,44 +1397,175 @@ def run_league_player_scraper(league_url, league_name=None):
                 player_scraper_state['progress']['status'] = 'stopped'
                 break
             
-            player_scraper_state['progress']['current'] = idx + 1
-            player_scraper_state['progress']['total'] = total
-            player_scraper_state['progress']['current_club'] = safe_str(club['name'])
-            player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
-            
-            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])}")
-            
-            players = player_scraper_instance.get_current_players(club['url'])
-            
-            if not players:
-                print(f"  -> No players found for {safe_str(club['name'])}")
-                continue
-            
-            for player in players:
-                profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
+            try:
+                player_scraper_state['progress']['current'] = idx + 1
+                player_scraper_state['progress']['total'] = total
+                player_scraper_state['progress']['current_club'] = safe_str(club['name'])
+                player_scraper_state['progress']['status'] = f'Processing {safe_str(club["name"])}...'
                 
-                results.append({
-                    'league': league_name,
-                    'league_country': '',
-                    'current_club': club['name'],
-                    'current_club_url': club['url'],
-                    'player_name': profile_info.get('player_name', player.get('name', '')),
-                    'player_id': player['id'],
-                    'jersey_number': profile_info.get('jersey_number', player.get('jersey_number', '')),
-                    'nationality': profile_info.get('nationality', ''),
-                    'date_of_birth': profile_info.get('date_of_birth', ''),
-                    'caps': profile_info.get('caps', ''),
-                    'goals': profile_info.get('goals', ''),
-                    'position': profile_info.get('position', player.get('position', '')),
-                    'height': profile_info.get('height', ''),
-                    'foot': profile_info.get('foot', ''),
-                    'current_market_value': profile_info.get('current_market_value', '')
-                })
+                print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])}")
+                
+                try:
+                    players = player_scraper_instance.get_current_players(club['url'])
+                except Exception as get_players_error:
+                    import traceback
+                    error_msg = safe_str(str(get_players_error))
+                    print(f"[ERROR] Failed to get players for {safe_str(club['name'])}: {error_msg}")
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    # Add to skipped clubs list
+                    try:
+                        if 'skipped_clubs' not in player_scraper_state:
+                            player_scraper_state['skipped_clubs'] = []
+                        player_scraper_state['skipped_clubs'].append({
+                            'name': safe_str(club['name']),
+                            'url': club.get('url', ''),
+                            'error': error_msg
+                        })
+                        print(f"[LOG] Added {safe_str(club['name'])} to skipped_clubs. Total skipped: {len(player_scraper_state['skipped_clubs'])}")
+                    except Exception as skip_error:
+                        print(f"[ERROR] Failed to add to skipped_clubs: {safe_str(str(skip_error))}")
+                        import traceback
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                    continue
+                
+                if not players:
+                    print(f"  -> No players found for {safe_str(club['name'])}")
+                    continue
+                
+                for player in players:
+                    try:
+                        profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
+                    except Exception as profile_error:
+                        import traceback
+                        print(f"[ERROR] Failed to scrape profile for player {safe_str(player.get('name', 'Unknown'))}: {safe_str(str(profile_error))}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Continue to next player
+                        continue
+                    
+                    try:
+                        # Safely convert all values
+                        safe_player_name = safe_str(profile_info.get('player_name', player.get('name', '')))
+                        safe_jersey_number = safe_str(profile_info.get('jersey_number', player.get('jersey_number', '')))
+                        safe_nationality = safe_str(profile_info.get('nationality', ''))
+                        safe_date_of_birth = safe_str(profile_info.get('date_of_birth', ''))
+                        safe_caps = safe_str(profile_info.get('caps', ''))
+                        safe_goals = safe_str(profile_info.get('goals', ''))
+                        safe_position = safe_str(profile_info.get('position', player.get('position', '')))
+                        safe_height = safe_str(profile_info.get('height', ''))
+                        safe_foot = safe_str(profile_info.get('foot', ''))
+                        safe_market_value = safe_str(profile_info.get('current_market_value', ''))
+                        
+                        result_item = {
+                            'league': safe_str(league_name),
+                            'league_country': '',
+                            'current_club': safe_str(club['name']),
+                            'current_club_url': club['url'],
+                            'player_name': safe_player_name,
+                            'player_id': player['id'],
+                            'jersey_number': safe_jersey_number,
+                            'nationality': safe_nationality,
+                            'date_of_birth': safe_date_of_birth,
+                            'caps': safe_caps,
+                            'goals': safe_goals,
+                            'position': safe_position,
+                            'height': safe_height,
+                            'foot': safe_foot,
+                            'current_market_value': safe_market_value
+                        }
+                        results.append(result_item)
+                    except Exception as e:
+                        import traceback
+                        print(f"[ERROR] Failed to append result in run_league_player_scraper: {e}")
+                        print(f"[ERROR] player: {repr(player)}")
+                        print(f"[ERROR] profile_info: {repr(profile_info)}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Try to append with minimal safe data
+                        try:
+                            results.append({
+                                'league': safe_str(league_name),
+                                'league_country': '',
+                                'current_club': safe_str(club['name']),
+                                'current_club_url': club['url'],
+                                'player_name': '',
+                                'player_id': player.get('id', ''),
+                                'jersey_number': '',
+                                'nationality': '',
+                                'date_of_birth': '',
+                                'caps': '',
+                                'goals': '',
+                                'position': '',
+                                'height': '',
+                                'foot': '',
+                                'current_market_value': ''
+                            })
+                        except:
+                            print("[ERROR] Even minimal result append failed")
+                            pass
+            except Exception as club_error:
+                import traceback
+                error_msg = safe_str(str(club_error))
+                club_name = safe_str(club.get('name', 'Unknown'))
+                print(f"[ERROR] Failed to process club {club_name}: {error_msg}")
+                traceback_str = safe_str(traceback.format_exc())
+                print(traceback_str)
+                # Add to skipped clubs list
+                try:
+                    if 'skipped_clubs' not in player_scraper_state:
+                        player_scraper_state['skipped_clubs'] = []
+                    player_scraper_state['skipped_clubs'].append({
+                        'name': club_name,
+                        'url': club.get('url', ''),
+                        'error': error_msg
+                    })
+                except:
+                    pass
+                # Continue to next club
+                continue
         
-        print(f"Player scraper finished with {len(results)} results")
-        player_scraper_state['results'] = results
-        player_scraper_state['progress']['current'] = total
-        player_scraper_state['progress']['status'] = 'completed'
+        try:
+            print(f"Player scraper finished with {len(results)} results")
+        except Exception as e:
+            print(f"[ERROR] Failed to print completion message: {e}")
+        
+        try:
+            # Ensure all results are safe before storing
+            safe_results = []
+            for result in results:
+                try:
+                    safe_result = {}
+                    for key, value in result.items():
+                        if isinstance(value, str):
+                            safe_result[key] = safe_str(value)
+                        else:
+                            safe_result[key] = value
+                    safe_results.append(safe_result)
+                except Exception as e:
+                    print(f"[ERROR] Failed to convert result item: {e}")
+                    import traceback
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    continue
+            player_scraper_state['results'] = safe_results
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to store results: {e}")
+            traceback_str = safe_str(traceback.format_exc())
+            print(traceback_str)
+            # Try to store empty results
+            try:
+                player_scraper_state['results'] = []
+            except:
+                pass
+        
+        try:
+            player_scraper_state['progress']['current'] = total
+            player_scraper_state['progress']['status'] = 'completed'
+        except Exception as e:
+            print(f"[ERROR] Failed to update progress: {e}")
         
     except Exception as e:
         import traceback
@@ -1361,10 +1589,10 @@ def run_multiple_leagues_player_scraper(league_urls):
             league_url = league_info.get('url')
             league_name = league_info.get('name', 'Unknown League')
             
-            print(f"Fetching clubs from {league_name}...")
+            print(f"Fetching clubs from {safe_str(league_name)}...")
             clubs = player_scraper_instance.scrape_clubs_from_league(league_url)
             for club in clubs:
-                club['league'] = league_name
+                club['league'] = safe_str(league_name)
                 club['league_country'] = ''
             all_clubs.extend(clubs)
         
@@ -1383,44 +1611,175 @@ def run_multiple_leagues_player_scraper(league_urls):
                 player_scraper_state['progress']['status'] = 'stopped'
                 break
             
-            player_scraper_state['progress']['current'] = idx + 1
-            player_scraper_state['progress']['total'] = total
-            player_scraper_state['progress']['current_club'] = safe_str(club['name'])
-            player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
-            
-            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
-            
-            players = player_scraper_instance.get_current_players(club['url'])
-            
-            if not players:
-                print(f"  -> No players found for {safe_str(club['name'])}")
-                continue
-            
-            for player in players:
-                profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
+            try:
+                player_scraper_state['progress']['current'] = idx + 1
+                player_scraper_state['progress']['total'] = total
+                player_scraper_state['progress']['current_club'] = safe_str(club['name'])
+                player_scraper_state['progress']['status'] = f'Processing {safe_str(club["name"])}...'
                 
-                results.append({
-                    'league': club.get('league', ''),
-                    'league_country': club.get('league_country', ''),
-                    'current_club': club['name'],
-                    'current_club_url': club['url'],
-                    'player_name': profile_info.get('player_name', player.get('name', '')),
-                    'player_id': player['id'],
-                    'jersey_number': profile_info.get('jersey_number', player.get('jersey_number', '')),
-                    'nationality': profile_info.get('nationality', ''),
-                    'date_of_birth': profile_info.get('date_of_birth', ''),
-                    'caps': profile_info.get('caps', ''),
-                    'goals': profile_info.get('goals', ''),
-                    'position': profile_info.get('position', player.get('position', '')),
-                    'height': profile_info.get('height', ''),
-                    'foot': profile_info.get('foot', ''),
-                    'current_market_value': profile_info.get('current_market_value', '')
-                })
+                print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
+                
+                try:
+                    players = player_scraper_instance.get_current_players(club['url'])
+                except Exception as get_players_error:
+                    import traceback
+                    error_msg = safe_str(str(get_players_error))
+                    print(f"[ERROR] Failed to get players for {safe_str(club['name'])}: {error_msg}")
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    # Add to skipped clubs list
+                    try:
+                        if 'skipped_clubs' not in player_scraper_state:
+                            player_scraper_state['skipped_clubs'] = []
+                        player_scraper_state['skipped_clubs'].append({
+                            'name': safe_str(club['name']),
+                            'url': club.get('url', ''),
+                            'error': error_msg
+                        })
+                        print(f"[LOG] Added {safe_str(club['name'])} to skipped_clubs. Total skipped: {len(player_scraper_state['skipped_clubs'])}")
+                    except Exception as skip_error:
+                        print(f"[ERROR] Failed to add to skipped_clubs: {safe_str(str(skip_error))}")
+                        import traceback
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                    continue
+                
+                if not players:
+                    print(f"  -> No players found for {safe_str(club['name'])}")
+                    continue
+                
+                for player in players:
+                    try:
+                        profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
+                    except Exception as profile_error:
+                        import traceback
+                        print(f"[ERROR] Failed to scrape profile for player {safe_str(player.get('name', 'Unknown'))}: {safe_str(str(profile_error))}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Continue to next player
+                        continue
+                    
+                    try:
+                        # Safely convert all values
+                        safe_player_name = safe_str(profile_info.get('player_name', player.get('name', '')))
+                        safe_jersey_number = safe_str(profile_info.get('jersey_number', player.get('jersey_number', '')))
+                        safe_nationality = safe_str(profile_info.get('nationality', ''))
+                        safe_date_of_birth = safe_str(profile_info.get('date_of_birth', ''))
+                        safe_caps = safe_str(profile_info.get('caps', ''))
+                        safe_goals = safe_str(profile_info.get('goals', ''))
+                        safe_position = safe_str(profile_info.get('position', player.get('position', '')))
+                        safe_height = safe_str(profile_info.get('height', ''))
+                        safe_foot = safe_str(profile_info.get('foot', ''))
+                        safe_market_value = safe_str(profile_info.get('current_market_value', ''))
+                        
+                        result_item = {
+                            'league': safe_str(club.get('league', '')),
+                            'league_country': safe_str(club.get('league_country', '')),
+                            'current_club': safe_str(club['name']),
+                            'current_club_url': club['url'],
+                            'player_name': safe_player_name,
+                            'player_id': player['id'],
+                            'jersey_number': safe_jersey_number,
+                            'nationality': safe_nationality,
+                            'date_of_birth': safe_date_of_birth,
+                            'caps': safe_caps,
+                            'goals': safe_goals,
+                            'position': safe_position,
+                            'height': safe_height,
+                            'foot': safe_foot,
+                            'current_market_value': safe_market_value
+                        }
+                        results.append(result_item)
+                    except Exception as e:
+                        import traceback
+                        print(f"[ERROR] Failed to append result: {e}")
+                        print(f"[ERROR] player: {repr(player)}")
+                        print(f"[ERROR] profile_info: {repr(profile_info)}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Try to append with minimal safe data
+                        try:
+                            results.append({
+                                'league': safe_str(club.get('league', '')),
+                                'league_country': safe_str(club.get('league_country', '')),
+                                'current_club': safe_str(club['name']),
+                                'current_club_url': club['url'],
+                                'player_name': '',
+                                'player_id': player.get('id', ''),
+                                'jersey_number': '',
+                                'nationality': '',
+                                'date_of_birth': '',
+                                'caps': '',
+                                'goals': '',
+                                'position': '',
+                                'height': '',
+                                'foot': '',
+                                'current_market_value': ''
+                            })
+                        except:
+                            print("[ERROR] Even minimal result append failed")
+                            pass
+            except Exception as club_error:
+                import traceback
+                error_msg = safe_str(str(club_error))
+                club_name = safe_str(club.get('name', 'Unknown'))
+                print(f"[ERROR] Failed to process club {club_name}: {error_msg}")
+                traceback_str = safe_str(traceback.format_exc())
+                print(traceback_str)
+                # Add to skipped clubs list
+                try:
+                    if 'skipped_clubs' not in player_scraper_state:
+                        player_scraper_state['skipped_clubs'] = []
+                    player_scraper_state['skipped_clubs'].append({
+                        'name': club_name,
+                        'url': club.get('url', ''),
+                        'error': error_msg
+                    })
+                except:
+                    pass
+                # Continue to next club
+                continue
         
-        print(f"Player scraper finished with {len(results)} results")
-        player_scraper_state['results'] = results
-        player_scraper_state['progress']['current'] = total
-        player_scraper_state['progress']['status'] = 'completed'
+        try:
+            print(f"Player scraper finished with {len(results)} results")
+        except Exception as e:
+            print(f"[ERROR] Failed to print completion message: {e}")
+        
+        try:
+            # Ensure all results are safe before storing
+            safe_results = []
+            for result in results:
+                try:
+                    safe_result = {}
+                    for key, value in result.items():
+                        if isinstance(value, str):
+                            safe_result[key] = safe_str(value)
+                        else:
+                            safe_result[key] = value
+                    safe_results.append(safe_result)
+                except Exception as e:
+                    print(f"[ERROR] Failed to convert result item: {e}")
+                    import traceback
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    continue
+            player_scraper_state['results'] = safe_results
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to store results: {e}")
+            traceback_str = safe_str(traceback.format_exc())
+            print(traceback_str)
+            # Try to store empty results
+            try:
+                player_scraper_state['results'] = []
+            except:
+                pass
+        
+        try:
+            player_scraper_state['progress']['current'] = total
+            player_scraper_state['progress']['status'] = 'completed'
+        except Exception as e:
+            print(f"[ERROR] Failed to update progress: {e}")
         
     except Exception as e:
         import traceback
@@ -1450,11 +1809,11 @@ def run_continent_player_scraper(continent):
         
         all_clubs = []
         for league in leagues:
-            print(f"Fetching clubs from {league['name']}...")
+            print(f"Fetching clubs from {safe_str(league['name'])}...")
             clubs = player_scraper_instance.scrape_clubs_from_league(league['url'])
             for club in clubs:
-                club['league'] = league['name']
-                club['league_country'] = league.get('country', '')
+                club['league'] = safe_str(league['name'])
+                club['league_country'] = safe_str(league.get('country', ''))
             all_clubs.extend(clubs)
         
         if not all_clubs:
@@ -1472,50 +1831,183 @@ def run_continent_player_scraper(continent):
                 player_scraper_state['progress']['status'] = 'stopped'
                 break
             
-            player_scraper_state['progress']['current'] = idx + 1
-            player_scraper_state['progress']['total'] = total
-            player_scraper_state['progress']['current_club'] = safe_str(club['name'])
-            player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
-            
-            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
-            
-            players = player_scraper_instance.get_current_players(club['url'])
-            
-            if not players:
-                print(f"  -> No players found for {safe_str(club['name'])}")
-                continue
-            
-            for player in players:
-                profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
+            try:
+                player_scraper_state['progress']['current'] = idx + 1
+                player_scraper_state['progress']['total'] = total
+                player_scraper_state['progress']['current_club'] = safe_str(club['name'])
+                player_scraper_state['progress']['status'] = f'Processing {safe_str(club["name"])}...'
                 
-                results.append({
-                    'league': club.get('league', ''),
-                    'league_country': club.get('league_country', ''),
-                    'current_club': club['name'],
-                    'current_club_url': club['url'],
-                    'player_name': profile_info.get('player_name', player.get('name', '')),
-                    'player_id': player['id'],
-                    'jersey_number': profile_info.get('jersey_number', player.get('jersey_number', '')),
-                    'nationality': profile_info.get('nationality', ''),
-                    'date_of_birth': profile_info.get('date_of_birth', ''),
-                    'caps': profile_info.get('caps', ''),
-                    'goals': profile_info.get('goals', ''),
-                    'position': profile_info.get('position', player.get('position', '')),
-                    'height': profile_info.get('height', ''),
-                    'foot': profile_info.get('foot', ''),
-                    'current_market_value': profile_info.get('current_market_value', '')
-                })
+                print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
+                
+                try:
+                    players = player_scraper_instance.get_current_players(club['url'])
+                except Exception as get_players_error:
+                    import traceback
+                    error_msg = safe_str(str(get_players_error))
+                    print(f"[ERROR] Failed to get players for {safe_str(club['name'])}: {error_msg}")
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    # Add to skipped clubs list
+                    try:
+                        if 'skipped_clubs' not in player_scraper_state:
+                            player_scraper_state['skipped_clubs'] = []
+                        player_scraper_state['skipped_clubs'].append({
+                            'name': safe_str(club['name']),
+                            'url': club.get('url', ''),
+                            'error': error_msg
+                        })
+                        print(f"[LOG] Added {safe_str(club['name'])} to skipped_clubs. Total skipped: {len(player_scraper_state['skipped_clubs'])}")
+                    except Exception as skip_error:
+                        print(f"[ERROR] Failed to add to skipped_clubs: {safe_str(str(skip_error))}")
+                        import traceback
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                    continue
+                
+                if not players:
+                    print(f"  -> No players found for {safe_str(club['name'])}")
+                    continue
+                
+                for player in players:
+                    try:
+                        profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
+                    except Exception as profile_error:
+                        import traceback
+                        print(f"[ERROR] Failed to scrape profile for player {safe_str(player.get('name', 'Unknown'))}: {safe_str(str(profile_error))}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Continue to next player
+                        continue
+                    
+                    try:
+                        # Safely convert all values
+                        safe_player_name = safe_str(profile_info.get('player_name', player.get('name', '')))
+                        safe_jersey_number = safe_str(profile_info.get('jersey_number', player.get('jersey_number', '')))
+                        safe_nationality = safe_str(profile_info.get('nationality', ''))
+                        safe_date_of_birth = safe_str(profile_info.get('date_of_birth', ''))
+                        safe_caps = safe_str(profile_info.get('caps', ''))
+                        safe_goals = safe_str(profile_info.get('goals', ''))
+                        safe_position = safe_str(profile_info.get('position', player.get('position', '')))
+                        safe_height = safe_str(profile_info.get('height', ''))
+                        safe_foot = safe_str(profile_info.get('foot', ''))
+                        safe_market_value = safe_str(profile_info.get('current_market_value', ''))
+                        
+                        result_item = {
+                            'league': safe_str(club.get('league', '')),
+                            'league_country': safe_str(club.get('league_country', '')),
+                            'current_club': safe_str(club['name']),
+                            'current_club_url': club['url'],
+                            'player_name': safe_player_name,
+                            'player_id': player['id'],
+                            'jersey_number': safe_jersey_number,
+                            'nationality': safe_nationality,
+                            'date_of_birth': safe_date_of_birth,
+                            'caps': safe_caps,
+                            'goals': safe_goals,
+                            'position': safe_position,
+                            'height': safe_height,
+                            'foot': safe_foot,
+                            'current_market_value': safe_market_value
+                        }
+                        results.append(result_item)
+                    except Exception as e:
+                        import traceback
+                        print(f"[ERROR] Failed to append result: {e}")
+                        print(f"[ERROR] player: {repr(player)}")
+                        print(f"[ERROR] profile_info: {repr(profile_info)}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Try to append with minimal safe data
+                        try:
+                            results.append({
+                                'league': safe_str(club.get('league', '')),
+                                'league_country': safe_str(club.get('league_country', '')),
+                                'current_club': safe_str(club['name']),
+                                'current_club_url': club['url'],
+                                'player_name': '',
+                                'player_id': player.get('id', ''),
+                                'jersey_number': '',
+                                'nationality': '',
+                                'date_of_birth': '',
+                                'caps': '',
+                                'goals': '',
+                                'position': '',
+                                'height': '',
+                                'foot': '',
+                                'current_market_value': ''
+                            })
+                        except:
+                            print("[ERROR] Even minimal result append failed")
+                            pass
+            except Exception as club_error:
+                import traceback
+                error_msg = safe_str(str(club_error))
+                club_name = safe_str(club.get('name', 'Unknown'))
+                print(f"[ERROR] Failed to process club {club_name}: {error_msg}")
+                traceback_str = safe_str(traceback.format_exc())
+                print(traceback_str)
+                # Add to skipped clubs list
+                try:
+                    if 'skipped_clubs' not in player_scraper_state:
+                        player_scraper_state['skipped_clubs'] = []
+                    player_scraper_state['skipped_clubs'].append({
+                        'name': club_name,
+                        'url': club.get('url', ''),
+                        'error': error_msg
+                    })
+                except:
+                    pass
+                # Continue to next club
+                continue
         
-        print(f"Player scraper finished with {len(results)} results")
-        player_scraper_state['results'] = results
-        player_scraper_state['progress']['current'] = total
-        player_scraper_state['progress']['status'] = 'completed'
+        try:
+            print(f"Player scraper finished with {len(results)} results")
+        except Exception as e:
+            print(f"[ERROR] Failed to print completion message: {e}")
+        
+        try:
+            # Ensure all results are safe before storing
+            safe_results = []
+            for result in results:
+                try:
+                    safe_result = {}
+                    for key, value in result.items():
+                        if isinstance(value, str):
+                            safe_result[key] = safe_str(value)
+                        else:
+                            safe_result[key] = value
+                    safe_results.append(safe_result)
+                except Exception as e:
+                    print(f"[ERROR] Failed to convert result item: {e}")
+                    import traceback
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    continue
+            player_scraper_state['results'] = safe_results
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to store results: {e}")
+            traceback_str = safe_str(traceback.format_exc())
+            print(traceback_str)
+            # Try to store empty results
+            try:
+                player_scraper_state['results'] = []
+            except:
+                pass
+        
+        try:
+            player_scraper_state['progress']['current'] = total
+            player_scraper_state['progress']['status'] = 'completed'
+        except Exception as e:
+            print(f"[ERROR] Failed to update progress: {e}")
         
     except Exception as e:
         import traceback
-        print(f"Error in continent player scraper: {str(e)}")
-        print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
+        error_msg = safe_str(str(e))
+        print(f"Error in continent player scraper: {error_msg}")
+        traceback_str = safe_str(traceback.format_exc())
+        print(traceback_str)
+        player_scraper_state['progress']['status'] = f'error: {error_msg}'
     finally:
         player_scraper_state['running'] = False
         print("Continent player scraper finished")
@@ -1530,7 +2022,7 @@ def run_single_club_player_scraper(club_url, club_name):
         player_scraper_state['progress']['total'] = 1
         player_scraper_state['progress']['current'] = 0
         player_scraper_state['progress']['current_club'] = safe_str(club_name)
-        player_scraper_state['progress']['status'] = f'Processing {club_name}...'
+        player_scraper_state['progress']['status'] = f'Processing {safe_str(club_name)}...'
         
         players = player_scraper_instance.get_current_players(club_url)
         print(f"  -> get_current_players returned {len(players)} players")
@@ -1538,7 +2030,7 @@ def run_single_club_player_scraper(club_url, club_name):
         if not players:
             print(f"No players found for {safe_str(club_name)} (URL: {club_url})")
             player_scraper_state['results'] = []
-            player_scraper_state['progress']['status'] = f'No players found for {club_name}'
+            player_scraper_state['progress']['status'] = f'No players found for {safe_str(club_name)}'
             player_scraper_state['running'] = False
             return
         
@@ -1551,28 +2043,96 @@ def run_single_club_player_scraper(club_url, club_name):
             
             profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
             
-            results.append({
-                'league': league,
-                'league_country': league_country,
-                'current_club': club_name,
-                'current_club_url': club_url,
-                'player_name': profile_info.get('player_name', player['name']),
-                'player_id': player['id'],
-                'jersey_number': profile_info.get('jersey_number', ''),
-                'nationality': profile_info.get('nationality', ''),
-                'date_of_birth': profile_info.get('date_of_birth', ''),
-                'caps': profile_info.get('caps', ''),
-                'goals': profile_info.get('goals', ''),
-                'position': profile_info.get('position', player.get('position', '')),
-                'height': profile_info.get('height', ''),
-                'foot': profile_info.get('foot', ''),
-                'current_market_value': profile_info.get('current_market_value', '')
-            })
+            try:
+                # Safely convert all values
+                safe_player_name = safe_str(profile_info.get('player_name', player.get('name', '')))
+                safe_nationality = safe_str(profile_info.get('nationality', ''))
+                safe_position = safe_str(profile_info.get('position', player.get('position', '')))
+                safe_height = safe_str(profile_info.get('height', ''))
+                safe_foot = safe_str(profile_info.get('foot', ''))
+                safe_market_value = safe_str(profile_info.get('current_market_value', ''))
+                
+                result_item = {
+                    'league': safe_str(league),
+                    'league_country': safe_str(league_country),
+                    'current_club': safe_str(club_name),
+                    'current_club_url': club_url,
+                    'player_name': safe_player_name,
+                    'player_id': player['id'],
+                    'jersey_number': safe_str(profile_info.get('jersey_number', '')),
+                    'nationality': safe_nationality,
+                    'date_of_birth': safe_str(profile_info.get('date_of_birth', '')),
+                    'caps': safe_str(profile_info.get('caps', '')),
+                    'goals': safe_str(profile_info.get('goals', '')),
+                    'position': safe_position,
+                    'height': safe_height,
+                    'foot': safe_foot,
+                    'current_market_value': safe_market_value
+                }
+                results.append(result_item)
+            except Exception as e:
+                import traceback
+                print(f"[ERROR] Failed to append result for player: {e}")
+                print(f"[ERROR] player: {repr(player)}")
+                print(f"[ERROR] profile_info: {repr(profile_info)}")
+                traceback_str = safe_str(traceback.format_exc())
+                print(traceback_str)
+                # Try to append with minimal safe data
+                try:
+                    results.append({
+                        'league': safe_str(league),
+                        'league_country': safe_str(league_country),
+                        'current_club': safe_str(club_name),
+                        'current_club_url': club_url,
+                        'player_name': '',
+                        'player_id': player.get('id', ''),
+                        'jersey_number': '',
+                        'nationality': '',
+                        'date_of_birth': '',
+                        'caps': '',
+                        'goals': '',
+                        'position': '',
+                        'height': '',
+                        'foot': '',
+                        'current_market_value': ''
+                    })
+                except:
+                    print("[ERROR] Even minimal result append failed")
+                    pass
         
-        print(f"Player scraper finished with {len(results)} results for {safe_str(club_name)}")
-        player_scraper_state['results'] = results
-        player_scraper_state['progress']['current'] = 1
-        player_scraper_state['progress']['status'] = 'completed'
+        try:
+            print(f"Player scraper finished with {len(results)} results for {safe_str(club_name)}")
+        except Exception as e:
+            print(f"[ERROR] Failed to print completion message: {e}")
+        
+        try:
+            # Ensure all results are safe before storing
+            safe_results = []
+            for result in results:
+                safe_result = {}
+                for key, value in result.items():
+                    if isinstance(value, str):
+                        safe_result[key] = safe_str(value)
+                    else:
+                        safe_result[key] = value
+                safe_results.append(safe_result)
+            player_scraper_state['results'] = safe_results
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to store results: {e}")
+            traceback_str = safe_str(traceback.format_exc())
+            print(traceback_str)
+            # Try to store empty results
+            try:
+                player_scraper_state['results'] = []
+            except:
+                pass
+        
+        try:
+            player_scraper_state['progress']['current'] = 1
+            player_scraper_state['progress']['status'] = 'completed'
+        except Exception as e:
+            print(f"[ERROR] Failed to update progress: {e}")
         
     except Exception as e:
         import traceback
@@ -1602,57 +2162,186 @@ def run_multiple_clubs_player_scraper(clubs):
                 player_scraper_state['progress']['status'] = 'stopped'
                 break
             
-            club_url = club_info.get('url')
-            club_name = club_info.get('name', 'Unknown Club')
-            
-            player_scraper_state['progress']['current'] = idx + 1
-            player_scraper_state['progress']['current_club'] = safe_str(club_name)
-            player_scraper_state['progress']['status'] = f'Processing {club_name}...'
-            
-            print(f"Processing club {idx + 1}/{len(clubs)}: {safe_str(club_name)}")
-            
-            players = player_scraper_instance.get_current_players(club_url)
-            
-            if not players:
-                print(f"  -> No players found for {safe_str(club_name)}")
+            try:
+                club_url = club_info.get('url')
+                club_name = club_info.get('name', 'Unknown Club')
+                
+                player_scraper_state['progress']['current'] = idx + 1
+                player_scraper_state['progress']['current_club'] = safe_str(club_name)
+                player_scraper_state['progress']['status'] = f'Processing {safe_str(club_name)}...'
+                
+                print(f"Processing club {idx + 1}/{len(clubs)}: {safe_str(club_name)}")
+                
+                try:
+                    players = player_scraper_instance.get_current_players(club_url)
+                except Exception as get_players_error:
+                    import traceback
+                    error_msg = safe_str(str(get_players_error))
+                    print(f"[ERROR] Failed to get players for {safe_str(club_name)}: {error_msg}")
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    # Add to skipped clubs list
+                    try:
+                        if 'skipped_clubs' not in player_scraper_state:
+                            player_scraper_state['skipped_clubs'] = []
+                        player_scraper_state['skipped_clubs'].append({
+                            'name': safe_str(club_name),
+                            'url': club_url,
+                            'error': error_msg
+                        })
+                    except:
+                        pass
+                    continue
+                
+                if not players:
+                    print(f"  -> No players found for {safe_str(club_name)}")
+                    continue
+                
+                league = ''
+                league_country = ''
+                
+                for player in players:
+                    print(f"  -> Processing player: {safe_str(player['name'])}")
+                    
+                    try:
+                        profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
+                    except Exception as profile_error:
+                        import traceback
+                        print(f"[ERROR] Failed to scrape profile for player {safe_str(player.get('name', 'Unknown'))}: {safe_str(str(profile_error))}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Continue to next player
+                        continue
+                    
+                    try:
+                        # Safely convert all values
+                        safe_player_name = safe_str(profile_info.get('player_name', player.get('name', '')))
+                        safe_jersey_number = safe_str(profile_info.get('jersey_number', player.get('jersey_number', '')))
+                        safe_nationality = safe_str(profile_info.get('nationality', ''))
+                        safe_date_of_birth = safe_str(profile_info.get('date_of_birth', ''))
+                        safe_caps = safe_str(profile_info.get('caps', ''))
+                        safe_goals = safe_str(profile_info.get('goals', ''))
+                        safe_position = safe_str(profile_info.get('position', player.get('position', '')))
+                        safe_height = safe_str(profile_info.get('height', ''))
+                        safe_foot = safe_str(profile_info.get('foot', ''))
+                        safe_market_value = safe_str(profile_info.get('current_market_value', ''))
+                        
+                        result_item = {
+                            'league': safe_str(league),
+                            'league_country': safe_str(league_country),
+                            'current_club': safe_str(club_name),
+                            'current_club_url': club_url,
+                            'player_name': safe_player_name,
+                            'player_id': player['id'],
+                            'jersey_number': safe_jersey_number,
+                            'nationality': safe_nationality,
+                            'date_of_birth': safe_date_of_birth,
+                            'caps': safe_caps,
+                            'goals': safe_goals,
+                            'position': safe_position,
+                            'height': safe_height,
+                            'foot': safe_foot,
+                            'current_market_value': safe_market_value
+                        }
+                        results.append(result_item)
+                    except Exception as e:
+                        import traceback
+                        print(f"[ERROR] Failed to append result in run_multiple_clubs_player_scraper: {e}")
+                        print(f"[ERROR] player: {repr(player)}")
+                        print(f"[ERROR] profile_info: {repr(profile_info)}")
+                        traceback_str = safe_str(traceback.format_exc())
+                        print(traceback_str)
+                        # Try to append with minimal safe data
+                        try:
+                            results.append({
+                                'league': safe_str(league),
+                                'league_country': safe_str(league_country),
+                                'current_club': safe_str(club_name),
+                                'current_club_url': club_url,
+                                'player_name': '',
+                                'player_id': player.get('id', ''),
+                                'jersey_number': '',
+                                'nationality': '',
+                                'date_of_birth': '',
+                                'caps': '',
+                                'goals': '',
+                                'position': '',
+                                'height': '',
+                                'foot': '',
+                                'current_market_value': ''
+                            })
+                        except:
+                            print("[ERROR] Even minimal result append failed")
+                            pass
+            except Exception as club_error:
+                import traceback
+                error_msg = safe_str(str(club_error))
+                club_name = safe_str(club_info.get('name', 'Unknown Club'))
+                print(f"[ERROR] Failed to process club {club_name}: {error_msg}")
+                traceback_str = safe_str(traceback.format_exc())
+                print(traceback_str)
+                # Add to skipped clubs list
+                try:
+                    if 'skipped_clubs' not in player_scraper_state:
+                        player_scraper_state['skipped_clubs'] = []
+                    player_scraper_state['skipped_clubs'].append({
+                        'name': club_name,
+                        'url': club_info.get('url', ''),
+                        'error': error_msg
+                    })
+                    print(f"[LOG] Added {club_name} to skipped_clubs. Total skipped: {len(player_scraper_state['skipped_clubs'])}")
+                except Exception as skip_error:
+                    print(f"[ERROR] Failed to add to skipped_clubs: {skip_error}")
+                    import traceback
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                # Continue to next club
                 continue
-            
-            league = ''
-            league_country = ''
-            
-            for player in players:
-                print(f"  -> Processing player: {safe_str(player['name'])}")
-                
-                profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
-                
-                results.append({
-                    'league': league,
-                    'league_country': league_country,
-                    'current_club': club_name,
-                    'current_club_url': club_url,
-                    'player_name': profile_info.get('player_name', player.get('name', '')),
-                    'player_id': player['id'],
-                    'jersey_number': profile_info.get('jersey_number', player.get('jersey_number', '')),
-                    'nationality': profile_info.get('nationality', ''),
-                    'date_of_birth': profile_info.get('date_of_birth', ''),
-                    'caps': profile_info.get('caps', ''),
-                    'goals': profile_info.get('goals', ''),
-                    'position': profile_info.get('position', player.get('position', '')),
-                    'height': profile_info.get('height', ''),
-                    'foot': profile_info.get('foot', ''),
-                    'current_market_value': profile_info.get('current_market_value', '')
-                })
         
-        print(f"Player scraper finished with {len(results)} results for {len(clubs)} clubs")
-        player_scraper_state['results'] = results
+        try:
+            print(f"Player scraper finished with {len(results)} results for {len(clubs)} clubs")
+        except Exception as e:
+            print(f"[ERROR] Failed to print completion message: {e}")
+        
+        try:
+            # Ensure all results are safe before storing
+            safe_results = []
+            for result in results:
+                try:
+                    safe_result = {}
+                    for key, value in result.items():
+                        if isinstance(value, str):
+                            safe_result[key] = safe_str(value)
+                        else:
+                            safe_result[key] = value
+                    safe_results.append(safe_result)
+                except Exception as e:
+                    print(f"[ERROR] Failed to convert result item: {e}")
+                    import traceback
+                    traceback_str = safe_str(traceback.format_exc())
+                    print(traceback_str)
+                    continue
+            player_scraper_state['results'] = safe_results
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Failed to store results: {e}")
+            traceback_str = safe_str(traceback.format_exc())
+            print(traceback_str)
+            # Try to store empty results
+            try:
+                player_scraper_state['results'] = []
+            except:
+                pass
         player_scraper_state['progress']['current'] = len(clubs)
         player_scraper_state['progress']['status'] = 'completed'
         
     except Exception as e:
         import traceback
-        print(f"Error in multiple clubs player scraper: {str(e)}")
-        print(traceback.format_exc())
-        player_scraper_state['progress']['status'] = f'error: {safe_str(e)}'
+        error_msg = safe_str(str(e))
+        print(f"Error in multiple clubs player scraper: {error_msg}")
+        traceback_str = safe_str(traceback.format_exc())
+        print(traceback_str)
+        player_scraper_state['progress']['status'] = f'error: {error_msg}'
     finally:
         player_scraper_state['running'] = False
         print("Multiple clubs player scraper finished")
@@ -1723,7 +2412,7 @@ def run_league_by_id_player_scraper(league_id):
             # Try to extract league name
             name_elem = soup.find('h1')
             if name_elem:
-                league_name = name_elem.get_text().strip()
+                league_name = safe_str(name_elem.get_text().strip())
         
         if not league_name:
             league_name = f'League {league_id}'
@@ -1764,7 +2453,7 @@ def run_club_by_id_player_scraper(club_id):
             # Try to extract club name
             name_elem = soup.find('h1')
             if name_elem:
-                club_name = name_elem.get_text().strip()
+                club_name = safe_str(name_elem.get_text().strip())
         
         if not club_name:
             club_name = f'Club {club_id}'
