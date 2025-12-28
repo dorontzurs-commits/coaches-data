@@ -639,6 +639,79 @@ function App() {
     })
   }
 
+  // Function to format and send message
+  const sendResultsMessage = () => {
+    if (currentResults.length === 0) {
+      return
+    }
+
+    const timestamp = new Date().toISOString()
+    
+    // Create messages for each result
+    const messages = currentResults.map(result => {
+      let messageContent = ''
+      
+      if (activeTab === 'coaches') {
+        // Format coach message
+        messageContent = `Coach Career History Update:\r\n` +
+          `Data Source: TransferMarket\r\n` +
+          `Name: ${result.manager || 'N/A'} (ID: ${result.manager_id || 'N/A'})\r\n` +
+          `Current Club: ${result.current_club || 'N/A'}\r\n` +
+          `History Club: ${result.history_club || 'N/A'}\r\n` +
+          `League: ${result.league || 'N/A'}\r\n` +
+          `Date of Birth: ${result.date_of_birth || 'N/A'}\r\n` +
+          `Preferred Formation: ${result.preferred_formation || 'N/A'}\r\n` +
+          `Role: ${result.role || 'N/A'}\r\n` +
+          `Appointed Date: ${result.appointed_date || 'N/A'}\r\n` +
+          `Until Date: ${result.until_date || 'N/A'}\r\n` +
+          `Days in Charge: ${result.days_in_charge || 'N/A'}\r\n` +
+          `Matches: ${result.matches || '0'}\r\n` +
+          `Wins: ${result.wins || '0'}\r\n` +
+          `Draws: ${result.draws || '0'}\r\n` +
+          `Losses: ${result.losses || '0'}\r\n` +
+          `Players Used: ${result.players_used || '0'}\r\n` +
+          `Avg Goals For: ${result.avg_goals_for || '0'}\r\n` +
+          `Avg Goals Against: ${result.avg_goals_against || '0'}\r\n` +
+          `Points Per Match: ${result.points_per_match || '0'}\r\n` +
+          `\r\nStatus: Active`
+      } else {
+        // Format player message
+        messageContent = `Player Data Update:\r\n` +
+          `Data Source: TransferMarket\r\n` +
+          `Name: ${result.player_name || 'N/A'} (ID: ${result.player_id || 'N/A'})\r\n` +
+          `Current Club: ${result.current_club || 'N/A'}\r\n` +
+          `League: ${result.league || 'N/A'}\r\n` +
+          `Nationality: ${result.nationality || 'N/A'}\r\n` +
+          `Position: ${result.position || 'N/A'}\r\n` +
+          `Jersey: ${result.jersey_number || 'N/A'}\r\n` +
+          `Date of Birth: ${result.date_of_birth || 'N/A'}\r\n` +
+          `Height: ${result.height || 'N/A'}\r\n` +
+          `Foot: ${result.foot || 'N/A'}\r\n` +
+          `Caps: ${result.caps || '0'}\r\n` +
+          `Goals: ${result.goals || '0'}\r\n` +
+          `Current Market Value: ${result.current_market_value || 'N/A'}\r\n` +
+          `\r\nStatus: Active`
+      }
+
+      return {
+        "@timestamp": timestamp,
+        "category": "Trace",
+        "message": messageContent
+      }
+    })
+
+    // Send to console (and eventually to Kafka)
+    console.log('=== Sending Results Messages ===')
+    messages.forEach((msg, index) => {
+      console.log(`Message ${index + 1}:`, JSON.stringify(msg, null, 2))
+    })
+    console.log(`Total messages sent: ${messages.length}`)
+    console.log('=== End of Messages ===')
+
+    // TODO: In the future, send to Kafka here
+    // await sendToKafka(messages)
+  }
+
   return (
     <div className="container">
       <div className="header">
@@ -1027,6 +1100,50 @@ function App() {
               {currentResults.length} {activeTab === 'coaches' ? 'career entr' + (currentResults.length !== 1 ? 'ies' : 'y') : 'player' + (currentResults.length !== 1 ? 's' : '')} found
             </span>
           )}
+        </div>
+
+        {/* Send Message Button - Always visible, disabled when no results */}
+        <div style={{ 
+          marginBottom: '20px', 
+          display: 'flex', 
+          justifyContent: 'flex-end',
+          gap: '10px'
+        }}>
+          <button
+            onClick={sendResultsMessage}
+            disabled={currentResults.length === 0}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: currentResults.length > 0 ? '#3b82f6' : '#475569',
+              color: '#ffffff',
+              border: `2px solid ${currentResults.length > 0 ? '#3b82f6' : '#475569'}`,
+              borderRadius: '6px',
+              cursor: currentResults.length > 0 ? 'pointer' : 'not-allowed',
+              fontSize: '1rem',
+              fontWeight: '600',
+              transition: 'all 0.2s ease',
+              boxShadow: currentResults.length > 0 ? '0 2px 8px rgba(59, 130, 246, 0.3)' : 'none',
+              opacity: currentResults.length > 0 ? 1 : 0.6
+            }}
+            onMouseEnter={(e) => {
+              if (currentResults.length > 0) {
+                e.currentTarget.style.backgroundColor = '#2563eb'
+                e.currentTarget.style.borderColor = '#2563eb'
+                e.currentTarget.style.transform = 'translateY(-1px)'
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.4)'
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (currentResults.length > 0) {
+                e.currentTarget.style.backgroundColor = '#3b82f6'
+                e.currentTarget.style.borderColor = '#3b82f6'
+                e.currentTarget.style.transform = 'translateY(0)'
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.3)'
+              }
+            }}
+          >
+            📤 Send Results Message
+          </button>
         </div>
 
         {currentStatus.running && currentResults.length === 0 && (
