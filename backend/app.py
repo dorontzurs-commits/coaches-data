@@ -1,8 +1,25 @@
 # Fix encoding for Windows console
 import sys
+import io
+import os
+
+# Set UTF-8 encoding for Windows console (only if not already wrapped)
+if sys.platform == 'win32':
+    try:
+        # Only wrap if stdout is not already a TextIOWrapper
+        if not isinstance(sys.stdout, io.TextIOWrapper):
+            # Try to set console to UTF-8
+            if hasattr(sys.stdout, 'buffer'):
+                sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+            if hasattr(sys.stderr, 'buffer'):
+                sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except:
+        pass
 
 def safe_str(s):
-    """Convert string to safe ASCII string for Windows console"""
+    """Convert string to safe string for Windows console"""
+    if s is None:
+        return ''
     if isinstance(s, str):
         try:
             # Try to encode as UTF-8 first, then fallback to ASCII with replacement
@@ -384,54 +401,84 @@ def run_league_scraper(league_url, league_name=None):
             scraper_state['progress']['current'] = idx + 1
             scraper_state['progress']['total'] = total
             scraper_state['progress']['current_club'] = safe_str(club['name'])
-            scraper_state['progress']['status'] = f'Processing {club["name"]}...'
+            scraper_state['progress']['status'] = f'Processing {safe_str(club["name"])}...'
             
-            print(f"Processing club {idx + 1}/{total}: {club['name']}")
+            print(f"[LOG] Processing club {idx + 1}/{total}: {safe_str(club['name'])}")
+            print(f"[LOG] Club name (raw): {repr(club['name'])}")
+            print(f"[LOG] Club name (safe): {safe_str(club['name'])}")
             
             # Get managers
-            managers = scraper_instance.get_current_manager(club['url'], include_caretaker=False)
+            try:
+                print(f"[LOG] Fetching managers for club: {safe_str(club['name'])}")
+                managers = scraper_instance.get_current_manager(club['url'], include_caretaker=False)
+                print(f"[LOG] Found {len(managers) if managers else 0} managers")
+            except Exception as e:
+                import traceback
+                print(f"[ERROR] Failed to get managers for {safe_str(club['name'])}: {safe_str(str(e))}")
+                print(f"[ERROR] Traceback: {safe_str(traceback.format_exc())}")
+                managers = []
             
             if not managers:
-                print(f"  -> No managers found for {club['name']}")
+                print(f"  -> No managers found for {safe_str(club['name'])}")
                 continue
             
             # Process each manager
-            for manager in managers:
-                # Get manager profile info (date of birth, preferred formation)
-                profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+            for manager_idx, manager in enumerate(managers):
+                try:
+                    print(f"[LOG] Processing manager {manager_idx + 1}/{len(managers)}: {safe_str(manager.get('name', 'Unknown'))}")
+                    print(f"[LOG] Manager name (raw): {repr(manager.get('name', ''))}")
+                    
+                    # Get manager profile info (date of birth, preferred formation)
+                    print(f"[LOG] Fetching profile info for manager: {safe_str(manager.get('name', 'Unknown'))}")
+                    profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+                    print(f"[LOG] Profile info fetched successfully")
+                    
+                    print(f"[LOG] Fetching career history for manager: {safe_str(manager.get('name', 'Unknown'))}")
+                    career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
+                    print(f"[LOG] Found {len(career_history)} career entries")
+                except Exception as e:
+                    import traceback
+                    print(f"[ERROR] Failed to process manager {safe_str(manager.get('name', 'Unknown'))}: {safe_str(str(e))}")
+                    print(f"[ERROR] Traceback: {safe_str(traceback.format_exc())}")
+                    continue
                 
-                career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
-                
-                for entry in career_history:
-                    results.append({
-                        'league': league_name,
-                        'league_country': '',
-                        'current_club': club['name'],
-                        'current_club_url': club['url'],
-                        'manager': manager['name'],
-                        'manager_id': manager['id'],
-                        'manager_role': manager.get('role', 'Manager'),
-                        'date_of_birth': profile_info.get('date_of_birth', ''),
-                        'preferred_formation': profile_info.get('preferred_formation', ''),
-                        'history_club': entry.get('club', ''),
-                        'history_club_url': entry.get('club_url', ''),
-                        'role': entry.get('role', ''),
-                        'appointed_season': entry.get('appointed_season', ''),
-                        'appointed_date': entry.get('appointed_date', ''),
-                        'until_season': entry.get('until_season', ''),
-                        'until_date': entry.get('until_date', ''),
-                        'period_from': entry.get('period_from', ''),
-                        'period_until': entry.get('period_until', ''),
-                        'days_in_charge': entry.get('days_in_charge', ''),
-                        'matches': entry.get('matches', ''),
-                        'wins': entry.get('wins', ''),
-                        'draws': entry.get('draws', ''),
-                        'losses': entry.get('losses', ''),
-                        'players_used': entry.get('players_used', ''),
-                        'avg_goals_for': entry.get('avg_goals_for', ''),
-                        'avg_goals_against': entry.get('avg_goals_against', ''),
-                        'points_per_match': entry.get('points_per_match', '')
-                    })
+                for entry_idx, entry in enumerate(career_history):
+                    try:
+                        print(f"[LOG] Processing career entry {entry_idx + 1}/{len(career_history)}: {safe_str(entry.get('club', 'Unknown'))}")
+                        results.append({
+                            'league': safe_str(league_name),
+                            'league_country': '',
+                            'current_club': safe_str(club['name']),
+                            'current_club_url': club['url'],
+                            'manager': safe_str(manager['name']),
+                            'manager_id': manager['id'],
+                            'manager_role': safe_str(manager.get('role', 'Manager')),
+                            'date_of_birth': safe_str(profile_info.get('date_of_birth', '')),
+                            'preferred_formation': safe_str(profile_info.get('preferred_formation', '')),
+                            'history_club': safe_str(entry.get('club', '')),
+                            'history_club_url': entry.get('club_url', ''),
+                            'role': safe_str(entry.get('role', '')),
+                            'appointed_season': safe_str(entry.get('appointed_season', '')),
+                            'appointed_date': safe_str(entry.get('appointed_date', '')),
+                            'until_season': safe_str(entry.get('until_season', '')),
+                            'until_date': safe_str(entry.get('until_date', '')),
+                            'period_from': safe_str(entry.get('period_from', '')),
+                            'period_until': safe_str(entry.get('period_until', '')),
+                            'days_in_charge': safe_str(entry.get('days_in_charge', '')),
+                            'matches': safe_str(entry.get('matches', '')),
+                            'wins': safe_str(entry.get('wins', '')),
+                            'draws': safe_str(entry.get('draws', '')),
+                            'losses': safe_str(entry.get('losses', '')),
+                            'players_used': safe_str(entry.get('players_used', '')),
+                            'avg_goals_for': safe_str(entry.get('avg_goals_for', '')),
+                            'avg_goals_against': safe_str(entry.get('avg_goals_against', '')),
+                            'points_per_match': safe_str(entry.get('points_per_match', ''))
+                        })
+                    except Exception as e:
+                        import traceback
+                        print(f"[ERROR] Failed to process career entry: {safe_str(str(e))}")
+                        print(f"[ERROR] Traceback: {safe_str(traceback.format_exc())}")
+                        continue
         
         print(f"Scraper finished with {len(results)} results")
         scraper_state['results'] = results
@@ -487,33 +534,55 @@ def run_multiple_leagues_scraper(league_urls):
             scraper_state['progress']['current'] = idx + 1
             scraper_state['progress']['total'] = total
             scraper_state['progress']['current_club'] = safe_str(club['name'])
-            scraper_state['progress']['status'] = f'Processing {club["name"]}...'
+            scraper_state['progress']['status'] = f'Processing {safe_str(club["name"])}...'
             
-            print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
+            print(f"[LOG] Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
+            print(f"[LOG] Club name (raw): {repr(club['name'])}")
             
             # Get managers
-            managers = scraper_instance.get_current_manager(club['url'], include_caretaker=False)
+            try:
+                print(f"[LOG] Fetching managers for club: {safe_str(club['name'])}")
+                managers = scraper_instance.get_current_manager(club['url'], include_caretaker=False)
+                print(f"[LOG] Found {len(managers) if managers else 0} managers")
+            except Exception as e:
+                import traceback
+                print(f"[ERROR] Failed to get managers for {safe_str(club['name'])}: {safe_str(str(e))}")
+                print(f"[ERROR] Traceback: {safe_str(traceback.format_exc())}")
+                managers = []
             
             if not managers:
-                print(f"  -> No managers found for {club['name']}")
+                print(f"  -> No managers found for {safe_str(club['name'])}")
                 continue
             
             # Process each manager
-            for manager in managers:
-                # Get manager profile info (date of birth, preferred formation)
-                profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
-                
-                career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
+            for manager_idx, manager in enumerate(managers):
+                try:
+                    print(f"[LOG] Processing manager {manager_idx + 1}/{len(managers)}: {safe_str(manager.get('name', 'Unknown'))}")
+                    print(f"[LOG] Manager name (raw): {repr(manager.get('name', ''))}")
+                    
+                    # Get manager profile info (date of birth, preferred formation)
+                    print(f"[LOG] Fetching profile info for manager: {safe_str(manager.get('name', 'Unknown'))}")
+                    profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+                    print(f"[LOG] Profile info fetched successfully")
+                    
+                    print(f"[LOG] Fetching career history for manager: {safe_str(manager.get('name', 'Unknown'))}")
+                    career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
+                    print(f"[LOG] Found {len(career_history)} career entries")
+                except Exception as e:
+                    import traceback
+                    print(f"[ERROR] Failed to process manager {safe_str(manager.get('name', 'Unknown'))}: {safe_str(str(e))}")
+                    print(f"[ERROR] Traceback: {safe_str(traceback.format_exc())}")
+                    continue
                 
                 for entry in career_history:
                     results.append({
                         'league': club.get('league', ''),
                         'league_country': club.get('league_country', ''),
-                        'current_club': club['name'],
+                        'current_club': safe_str(club['name']),
                         'current_club_url': club['url'],
-                        'manager': manager['name'],
+                        'manager': safe_str(manager['name']),
                         'manager_id': manager['id'],
-                        'manager_role': manager.get('role', 'Manager'),
+                        'manager_role': safe_str(manager.get('role', 'Manager')),
                         'date_of_birth': profile_info.get('date_of_birth', ''),
                         'preferred_formation': profile_info.get('preferred_formation', ''),
                         'history_club': entry.get('club', ''),
@@ -597,33 +666,55 @@ def run_continent_scraper(continent):
             scraper_state['progress']['current'] = idx + 1
             scraper_state['progress']['total'] = total
             scraper_state['progress']['current_club'] = safe_str(club['name'])
-            scraper_state['progress']['status'] = f'Processing {club["name"]}...'
+            scraper_state['progress']['status'] = f'Processing {safe_str(club["name"])}...'
             
-            print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
+            print(f"[LOG] Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
+            print(f"[LOG] Club name (raw): {repr(club['name'])}")
             
             # Get managers
-            managers = scraper_instance.get_current_manager(club['url'], include_caretaker=False)
+            try:
+                print(f"[LOG] Fetching managers for club: {safe_str(club['name'])}")
+                managers = scraper_instance.get_current_manager(club['url'], include_caretaker=False)
+                print(f"[LOG] Found {len(managers) if managers else 0} managers")
+            except Exception as e:
+                import traceback
+                print(f"[ERROR] Failed to get managers for {safe_str(club['name'])}: {safe_str(str(e))}")
+                print(f"[ERROR] Traceback: {safe_str(traceback.format_exc())}")
+                managers = []
             
             if not managers:
-                print(f"  -> No managers found for {club['name']}")
+                print(f"  -> No managers found for {safe_str(club['name'])}")
                 continue
             
             # Process each manager
-            for manager in managers:
-                # Get manager profile info (date of birth, preferred formation)
-                profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
-                
-                career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
+            for manager_idx, manager in enumerate(managers):
+                try:
+                    print(f"[LOG] Processing manager {manager_idx + 1}/{len(managers)}: {safe_str(manager.get('name', 'Unknown'))}")
+                    print(f"[LOG] Manager name (raw): {repr(manager.get('name', ''))}")
+                    
+                    # Get manager profile info (date of birth, preferred formation)
+                    print(f"[LOG] Fetching profile info for manager: {safe_str(manager.get('name', 'Unknown'))}")
+                    profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
+                    print(f"[LOG] Profile info fetched successfully")
+                    
+                    print(f"[LOG] Fetching career history for manager: {safe_str(manager.get('name', 'Unknown'))}")
+                    career_history = scraper_instance.scrape_coach_history(manager['name'], manager['id'])
+                    print(f"[LOG] Found {len(career_history)} career entries")
+                except Exception as e:
+                    import traceback
+                    print(f"[ERROR] Failed to process manager {safe_str(manager.get('name', 'Unknown'))}: {safe_str(str(e))}")
+                    print(f"[ERROR] Traceback: {safe_str(traceback.format_exc())}")
+                    continue
                 
                 for entry in career_history:
                     results.append({
                         'league': club.get('league', ''),
                         'league_country': club.get('league_country', ''),
-                        'current_club': club['name'],
+                        'current_club': safe_str(club['name']),
                         'current_club_url': club['url'],
-                        'manager': manager['name'],
+                        'manager': safe_str(manager['name']),
                         'manager_id': manager['id'],
-                        'manager_role': manager.get('role', 'Manager'),
+                        'manager_role': safe_str(manager.get('role', 'Manager')),
                         'date_of_birth': profile_info.get('date_of_birth', ''),
                         'preferred_formation': profile_info.get('preferred_formation', ''),
                         'history_club': entry.get('club', ''),
@@ -665,19 +756,19 @@ def run_single_club_scraper(club_url, club_name):
     global scraper_state, scraper_instance
     
     try:
-        print(f"Starting scraper for single club: {club_name}")
+        print(f"Starting scraper for single club: {safe_str(club_name)}")
         scraper_state['progress']['total'] = 1
         scraper_state['progress']['current'] = 0
         scraper_state['progress']['current_club'] = safe_str(club_name)
-        scraper_state['progress']['status'] = f'Processing {club_name}...'
+        scraper_state['progress']['status'] = f'Processing {safe_str(club_name)}...'
         
         # Get managers for the club
         managers = scraper_instance.get_current_manager(club_url, include_caretaker=False)
         
         if not managers:
-            print(f"No managers found for {club_name}")
+            print(f"No managers found for {safe_str(club_name)}")
             scraper_state['results'] = []
-            scraper_state['progress']['status'] = f'No managers found for {club_name}'
+            scraper_state['progress']['status'] = f'No managers found for {safe_str(club_name)}'
             scraper_state['running'] = False
             return
         
@@ -688,7 +779,7 @@ def run_single_club_scraper(club_url, club_name):
         
         # Process each manager
         for manager in managers:
-            print(f"  -> Processing {manager.get('role', 'Manager')}: {manager['name']}")
+            print(f"  -> Processing {safe_str(manager.get('role', 'Manager'))}: {safe_str(manager['name'])}")
             
             # Get manager profile info (date of birth, preferred formation)
             profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
@@ -701,11 +792,11 @@ def run_single_club_scraper(club_url, club_name):
                 results.append({
                     'league': league,
                     'league_country': league_country,
-                    'current_club': club_name,
+                    'current_club': safe_str(club_name),
                     'current_club_url': club_url,
-                    'manager': manager['name'],
+                    'manager': safe_str(manager['name']),
                     'manager_id': manager['id'],
-                    'manager_role': manager.get('role', 'Manager'),
+                    'manager_role': safe_str(manager.get('role', 'Manager')),
                     'date_of_birth': profile_info.get('date_of_birth', ''),
                     'preferred_formation': profile_info.get('preferred_formation', ''),
                     'history_club': entry.get('club', ''),
@@ -728,7 +819,7 @@ def run_single_club_scraper(club_url, club_name):
                     'points_per_match': entry.get('points_per_match', '')
                 })
         
-        print(f"Scraper finished with {len(results)} results for {club_name}")
+        print(f"Scraper finished with {len(results)} results for {safe_str(club_name)}")
         scraper_state['results'] = results
         scraper_state['progress']['current'] = 1
         scraper_state['progress']['status'] = 'completed'
@@ -765,15 +856,15 @@ def run_multiple_clubs_scraper(clubs):
             
             scraper_state['progress']['current'] = idx + 1
             scraper_state['progress']['current_club'] = safe_str(club_name)
-            scraper_state['progress']['status'] = f'Processing {club_name}...'
+            scraper_state['progress']['status'] = f'Processing {safe_str(club_name)}...'
             
-            print(f"Processing club {idx + 1}/{len(clubs)}: {club_name}")
+            print(f"Processing club {idx + 1}/{len(clubs)}: {safe_str(club_name)}")
             
             # Get managers for the club
             managers = scraper_instance.get_current_manager(club_url, include_caretaker=False)
             
             if not managers:
-                print(f"  -> No managers found for {club_name}")
+                print(f"  -> No managers found for {safe_str(club_name)}")
                 continue
             
             # Extract league info from club URL if possible, or leave empty
@@ -782,7 +873,7 @@ def run_multiple_clubs_scraper(clubs):
             
             # Process each manager
             for manager in managers:
-                print(f"  -> Processing {manager.get('role', 'Manager')}: {manager['name']}")
+                print(f"  -> Processing {safe_str(manager.get('role', 'Manager'))}: {safe_str(manager['name'])}")
                 
                 # Get manager profile info (date of birth, preferred formation)
                 profile_info = scraper_instance.scrape_manager_profile_info(manager.get('profile_url', ''))
@@ -1214,12 +1305,12 @@ def run_league_player_scraper(league_url, league_name=None):
             player_scraper_state['progress']['current_club'] = safe_str(club['name'])
             player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
-            print(f"Processing club {idx + 1}/{total}: {club['name']}")
+            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])}")
             
             players = player_scraper_instance.get_current_players(club['url'])
             
             if not players:
-                print(f"  -> No players found for {club['name']}")
+                print(f"  -> No players found for {safe_str(club['name'])}")
                 continue
             
             for player in players:
@@ -1297,12 +1388,12 @@ def run_multiple_leagues_player_scraper(league_urls):
             player_scraper_state['progress']['current_club'] = safe_str(club['name'])
             player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
-            print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
+            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
             
             players = player_scraper_instance.get_current_players(club['url'])
             
             if not players:
-                print(f"  -> No players found for {club['name']}")
+                print(f"  -> No players found for {safe_str(club['name'])}")
                 continue
             
             for player in players:
@@ -1386,12 +1477,12 @@ def run_continent_player_scraper(continent):
             player_scraper_state['progress']['current_club'] = safe_str(club['name'])
             player_scraper_state['progress']['status'] = f'Processing {club["name"]}...'
             
-            print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
+            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
             
             players = player_scraper_instance.get_current_players(club['url'])
             
             if not players:
-                print(f"  -> No players found for {club['name']}")
+                print(f"  -> No players found for {safe_str(club['name'])}")
                 continue
             
             for player in players:
@@ -1434,7 +1525,7 @@ def run_single_club_player_scraper(club_url, club_name):
     global player_scraper_state, player_scraper_instance
     
     try:
-        print(f"Starting player scraper for single club: {club_name}")
+        print(f"Starting player scraper for single club: {safe_str(club_name)}")
         print(f"  -> Club URL: {club_url}")
         player_scraper_state['progress']['total'] = 1
         player_scraper_state['progress']['current'] = 0
@@ -1445,7 +1536,7 @@ def run_single_club_player_scraper(club_url, club_name):
         print(f"  -> get_current_players returned {len(players)} players")
         
         if not players:
-            print(f"No players found for {club_name} (URL: {club_url})")
+            print(f"No players found for {safe_str(club_name)} (URL: {club_url})")
             player_scraper_state['results'] = []
             player_scraper_state['progress']['status'] = f'No players found for {club_name}'
             player_scraper_state['running'] = False
@@ -1456,7 +1547,7 @@ def run_single_club_player_scraper(club_url, club_name):
         league_country = ''
         
         for player in players:
-            print(f"  -> Processing player: {player['name']}")
+            print(f"  -> Processing player: {safe_str(player['name'])}")
             
             profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
             
@@ -1478,7 +1569,7 @@ def run_single_club_player_scraper(club_url, club_name):
                 'current_market_value': profile_info.get('current_market_value', '')
             })
         
-        print(f"Player scraper finished with {len(results)} results for {club_name}")
+        print(f"Player scraper finished with {len(results)} results for {safe_str(club_name)}")
         player_scraper_state['results'] = results
         player_scraper_state['progress']['current'] = 1
         player_scraper_state['progress']['status'] = 'completed'
@@ -1518,19 +1609,19 @@ def run_multiple_clubs_player_scraper(clubs):
             player_scraper_state['progress']['current_club'] = safe_str(club_name)
             player_scraper_state['progress']['status'] = f'Processing {club_name}...'
             
-            print(f"Processing club {idx + 1}/{len(clubs)}: {club_name}")
+            print(f"Processing club {idx + 1}/{len(clubs)}: {safe_str(club_name)}")
             
             players = player_scraper_instance.get_current_players(club_url)
             
             if not players:
-                print(f"  -> No players found for {club_name}")
+                print(f"  -> No players found for {safe_str(club_name)}")
                 continue
             
             league = ''
             league_country = ''
             
             for player in players:
-                print(f"  -> Processing player: {player['name']}")
+                print(f"  -> Processing player: {safe_str(player['name'])}")
                 
                 profile_info = player_scraper_instance.scrape_player_profile_info(player.get('profile_url', ''))
                 

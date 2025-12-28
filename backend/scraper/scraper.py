@@ -1,5 +1,19 @@
 # Fix encoding for Windows console
 import sys
+import io
+
+# Set UTF-8 encoding for Windows console (only if not already wrapped)
+if sys.platform == 'win32':
+    try:
+        # Only wrap if stdout is not already a TextIOWrapper
+        if not isinstance(sys.stdout, io.TextIOWrapper):
+            # Try to set console to UTF-8
+            if hasattr(sys.stdout, 'buffer'):
+                sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+            if hasattr(sys.stderr, 'buffer'):
+                sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except:
+        pass
 
 def safe_str(s):
     """Convert string to safe string for Windows console"""
@@ -22,17 +36,18 @@ def safe_str(s):
 import requests
 from bs4 import BeautifulSoup
 import time
+import random
 import re
 from urllib.parse import urljoin, urlparse
 
 class TransfermarktScraper:
-    def __init__(self, callback=None, delay=2):
+    def __init__(self, callback=None, delay=None):
         """
         Initialize the scraper
         
         Args:
             callback: Function to call with progress updates (current, total, current_club, status)
-            delay: Delay between requests in seconds
+            delay: Delay between requests in seconds. If None, uses random delay between 0.1-0.5 seconds (default: None)
         """
         self.callback = callback
         self.delay = delay
@@ -51,7 +66,12 @@ class TransfermarktScraper:
     def _get_page(self, url):
         """Fetch a page with error handling"""
         try:
-            time.sleep(self.delay)
+            if self.delay is None:
+                # Use random delay between 0.1-0.5 seconds for more human-like behavior
+                time.sleep(random.uniform(0.1, 0.5))
+            else:
+                # Use fixed delay if specified
+                time.sleep(self.delay)
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
             return BeautifulSoup(response.content, 'html.parser')
@@ -1185,7 +1205,7 @@ class TransfermarktScraper:
                 # Check if the league URL contains the ID
                 if league_id in league.get('url', ''):
                     league_url = league['url']
-                    print(f"  -> Found league: {league['name']} -> {league_url}")
+                    print(f"  -> Found league: {safe_str(league['name'])} -> {league_url}")
                     return league_url
         
         # If not found, try common slugs for known leagues
@@ -1290,7 +1310,7 @@ class TransfermarktScraper:
                     # Check if club URL contains the ID
                     if club_id in club.get('url', ''):
                         club_url = club['url']
-                        print(f"  -> Found club: {club['name']} -> {club_url}")
+                        print(f"  -> Found club: {safe_str(club['name'])} -> {club_url}")
                         return club_url
         
         # If not found, try common slugs for known clubs (similar to leagues)
@@ -1356,7 +1376,7 @@ class TransfermarktScraper:
         # Step 2: Get all clubs from all leagues
         all_clubs = []
         for league in leagues:
-            print(f"Fetching clubs from {league['name']}...")
+            print(f"Fetching clubs from {safe_str(league['name'])}...")
             clubs = self.scrape_clubs_from_league(league['url'])
             for club in clubs:
                 club['league'] = league['name']
@@ -1378,20 +1398,20 @@ class TransfermarktScraper:
                 break
             
             self._update_progress(idx + 1, total, club['name'], f'Processing {club["name"]}...')
-            print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
+            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
             
             # Get current managers (including Caretaker Manager)
-            print(f"  -> Attempting to find managers for {club['name']}...")
+            print(f"  -> Attempting to find managers for {safe_str(club['name'])}...")
             managers = self.get_current_manager(club['url'], include_caretaker=False)
             
             if not managers:
-                print(f"  -> No managers found for {club['name']}")
+                print(f"  -> No managers found for {safe_str(club['name'])}")
                 # Skip if no manager
                 continue
             
             # Process each manager (Manager and/or Caretaker Manager)
             for manager in managers:
-                print(f"  -> Found {manager.get('role', 'Manager')}: {manager['name']} (ID: {manager['id']})")
+                print(f"  -> Found {safe_str(manager.get('role', 'Manager'))}: {safe_str(manager['name'])} (ID: {manager['id']})")
                 
                 # Get manager profile info (date of birth, preferred formation)
                 profile_info = self.scrape_manager_profile_info(manager.get('profile_url', ''))
@@ -1869,7 +1889,7 @@ class TransfermarktScraper:
         # Step 2: Get all clubs from all leagues
         all_clubs = []
         for league in leagues:
-            print(f"Fetching clubs from {league['name']}...")
+            print(f"Fetching clubs from {safe_str(league['name'])}...")
             clubs = self.scrape_clubs_from_league(league['url'])
             for club in clubs:
                 club['league'] = league['name']
@@ -1891,18 +1911,18 @@ class TransfermarktScraper:
                 break
             
             self._update_progress(idx + 1, total, club['name'], f'Processing {club["name"]}...')
-            print(f"Processing club {idx + 1}/{total}: {club['name']} ({club.get('league', 'Unknown League')})")
+            print(f"Processing club {idx + 1}/{total}: {safe_str(club['name'])} ({safe_str(club.get('league', 'Unknown League'))})")
             
-            print(f"  -> Attempting to find players for {club['name']}...")
+            print(f"  -> Attempting to find players for {safe_str(club['name'])}...")
             players = self.get_current_players(club['url'])
             
             if not players:
-                print(f"  -> No players found for {club['name']}")
+                print(f"  -> No players found for {safe_str(club['name'])}")
                 continue
             
             # Process each player
             for player in players:
-                print(f"  -> Found player: {player['name']} (ID: {player['id']})")
+                print(f"  -> Found player: {safe_str(player['name'])} (ID: {player['id']})")
                 
                 # Get player profile info
                 profile_info = self.scrape_player_profile_info(player.get('profile_url', ''))
