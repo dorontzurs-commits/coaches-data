@@ -647,36 +647,83 @@ function App() {
 
     const timestamp = new Date().toISOString()
     
-    // Create messages for each result
-    const messages = currentResults.map(result => {
-      let messageContent = ''
+    let messages = []
+    
+    if (activeTab === 'coaches') {
+      // Group coaches by manager_id
+      const coachesByManager = {}
+      currentResults.forEach(result => {
+        const managerId = result.manager_id || 'unknown'
+        if (!coachesByManager[managerId]) {
+          coachesByManager[managerId] = {
+            manager: result.manager || 'N/A',
+            manager_id: managerId,
+            date_of_birth: result.date_of_birth || 'N/A',
+            preferred_formation: result.preferred_formation || 'N/A',
+            current_club: result.current_club || 'N/A',
+            league: result.league || 'N/A',
+            entries: []
+          }
+        }
+        coachesByManager[managerId].entries.push(result)
+      })
       
-      if (activeTab === 'coaches') {
-        // Format coach message
-        messageContent = `Coach Career History Update:\r\n` +
+      // Create message for each manager
+      Object.values(coachesByManager).forEach(managerData => {
+        // Sort entries by appointed_date (newest first)
+        const sortedEntries = [...managerData.entries].sort((a, b) => {
+          const dateA = a.appointed_date || ''
+          const dateB = b.appointed_date || ''
+          return dateB.localeCompare(dateA)
+        })
+        
+        // Build Transfer History section
+        let transferHistory = 'Transfer History---\r\n'
+        
+        sortedEntries.forEach((entry, index) => {
+          transferHistory += '---------------------\r\n'
+          transferHistory += `Target Team : ${entry.history_club || ''}\r\n`
+          transferHistory += `Country : \r\n`
+          transferHistory += `Competition : ${entry.league || ''}\r\n`
+          transferHistory += `Start Date : ${entry.appointed_date || ''}\r\n`
+          
+          const hasEndDate = entry.until_date && entry.until_date !== 'N/A' && entry.until_date.trim() !== ''
+          const isActiveContract = !hasEndDate
+          
+          if (hasEndDate) {
+            transferHistory += ` -> End Date ${entry.until_date}\r\n`
+          }
+          
+          transferHistory += `Active Contract : ${isActiveContract ? 'True' : 'False'}\r\n`
+          
+          // Add separator after each entry except the last
+          if (index < sortedEntries.length - 1) {
+            transferHistory += '---------------------\r\n'
+          }
+        })
+        
+        // Build main message
+        const firstEntry = sortedEntries[0] || managerData.entries[0]
+        let messageContent = `Coach Career History Update:\r\n` +
           `Data Source: TransferMarket\r\n` +
-          `Name: ${result.manager || 'N/A'} (ID: ${result.manager_id || 'N/A'})\r\n` +
-          `Current Club: ${result.current_club || 'N/A'}\r\n` +
-          `History Club: ${result.history_club || 'N/A'}\r\n` +
-          `League: ${result.league || 'N/A'}\r\n` +
-          `Date of Birth: ${result.date_of_birth || 'N/A'}\r\n` +
-          `Preferred Formation: ${result.preferred_formation || 'N/A'}\r\n` +
-          `Role: ${result.role || 'N/A'}\r\n` +
-          `Appointed Date: ${result.appointed_date || 'N/A'}\r\n` +
-          `Until Date: ${result.until_date || 'N/A'}\r\n` +
-          `Days in Charge: ${result.days_in_charge || 'N/A'}\r\n` +
-          `Matches: ${result.matches || '0'}\r\n` +
-          `Wins: ${result.wins || '0'}\r\n` +
-          `Draws: ${result.draws || '0'}\r\n` +
-          `Losses: ${result.losses || '0'}\r\n` +
-          `Players Used: ${result.players_used || '0'}\r\n` +
-          `Avg Goals For: ${result.avg_goals_for || '0'}\r\n` +
-          `Avg Goals Against: ${result.avg_goals_against || '0'}\r\n` +
-          `Points Per Match: ${result.points_per_match || '0'}\r\n` +
-          `\r\nStatus: Active`
-      } else {
-        // Format player message
-        messageContent = `Player Data Update:\r\n` +
+          `Name: ${managerData.manager || 'N/A'} (ID: ${managerData.manager_id || 'N/A'})\r\n` +
+          `Current Club: ${managerData.current_club || 'N/A'}\r\n` +
+          `League: ${managerData.league || 'N/A'}\r\n` +
+          `Date of Birth: ${managerData.date_of_birth || 'N/A'}\r\n` +
+          `Preferred Formation: ${managerData.preferred_formation || 'N/A'}\r\n` +
+          `\r\n${transferHistory}\r\n` +
+          `Status: Active`
+        
+        messages.push({
+          "@timestamp": timestamp,
+          "category": "Trace",
+          "message": messageContent
+        })
+      })
+    } else {
+      // Format player messages (unchanged)
+      messages = currentResults.map(result => {
+        const messageContent = `Player Data Update:\r\n` +
           `Data Source: TransferMarket\r\n` +
           `Name: ${result.player_name || 'N/A'} (ID: ${result.player_id || 'N/A'})\r\n` +
           `Current Club: ${result.current_club || 'N/A'}\r\n` +
@@ -691,14 +738,14 @@ function App() {
           `Goals: ${result.goals || '0'}\r\n` +
           `Current Market Value: ${result.current_market_value || 'N/A'}\r\n` +
           `\r\nStatus: Active`
-      }
 
-      return {
-        "@timestamp": timestamp,
-        "category": "Trace",
-        "message": messageContent
-      }
-    })
+        return {
+          "@timestamp": timestamp,
+          "category": "Trace",
+          "message": messageContent
+        }
+      })
+    }
 
     // Send to console (and eventually to Kafka)
     console.log('=== Sending Results Messages ===')
@@ -1106,7 +1153,7 @@ function App() {
         <div style={{ 
           marginBottom: '20px', 
           display: 'flex', 
-          justifyContent: 'flex-end',
+          justifyContent: 'flex-start',
           gap: '10px'
         }}>
           <button
